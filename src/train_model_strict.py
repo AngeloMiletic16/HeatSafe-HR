@@ -15,12 +15,12 @@ from src.config import MODELS_DIR, PROCESSED_DATA_DIR
 
 
 INPUT_PATH = PROCESSED_DATA_DIR / "model_dataset_next_day.csv"
-BEST_MODEL_PATH = MODELS_DIR / "best_next_day_risk_model.joblib"
-METRICS_PATH = MODELS_DIR / "model_metrics.json"
-TEST_PREDICTIONS_PATH = MODELS_DIR / "test_predictions.csv"
-
+BEST_MODEL_PATH = MODELS_DIR / "best_next_day_risk_model_strict.joblib"
+METRICS_PATH = MODELS_DIR / "model_metrics_strict.json"
+TEST_PREDICTIONS_PATH = MODELS_DIR / "test_predictions_strict.csv"
 
 TARGET_COLUMN = "target_next_day_class"
+TEST_DAYS = 365
 
 DROP_COLUMNS = [
     "date",
@@ -35,10 +35,6 @@ DROP_COLUMNS = [
     "score_wind",
     "score_persistence",
     "score_precip_adjustment",
-    "hot_day_32",
-    "very_hot_day_35",
-    "hot_days_last_3",
-    "very_hot_days_last_3",
 ]
 
 CATEGORICAL_FEATURES = [
@@ -62,12 +58,15 @@ def load_dataset(input_path: Path = INPUT_PATH) -> pd.DataFrame:
 
 def build_feature_lists(df: pd.DataFrame) -> tuple[list[str], list[str]]:
     forbidden_prefixes = ("target_", "score_")
+    forbidden_contains = ("heat_risk_score",)
 
     numeric_features = []
     for col in df.columns:
         if col in NUMERIC_EXCLUDE:
             continue
         if col.startswith(forbidden_prefixes):
+            continue
+        if any(token in col for token in forbidden_contains):
             continue
         if pd.api.types.is_numeric_dtype(df[col]):
             numeric_features.append(col)
@@ -76,7 +75,7 @@ def build_feature_lists(df: pd.DataFrame) -> tuple[list[str], list[str]]:
     return numeric_features, categorical_features
 
 
-def time_based_split(df: pd.DataFrame, test_days: int = 120) -> tuple[pd.DataFrame, pd.DataFrame]:
+def time_based_split(df: pd.DataFrame, test_days: int = TEST_DAYS) -> tuple[pd.DataFrame, pd.DataFrame]:
     max_date = df["date"].max()
     cutoff_date = max_date - pd.Timedelta(days=test_days)
 
@@ -84,7 +83,7 @@ def time_based_split(df: pd.DataFrame, test_days: int = 120) -> tuple[pd.DataFra
     test_df = df[df["date"] > cutoff_date].copy()
 
     if train_df.empty or test_df.empty:
-        raise ValueError("Train/test split failed. Adjust test_days.")
+        raise ValueError("Train/test split failed. Adjust TEST_DAYS.")
 
     return train_df, test_df
 
@@ -136,7 +135,7 @@ def build_models(preprocessor: ColumnTransformer) -> dict[str, Pipeline]:
             (
                 "classifier",
                 RandomForestClassifier(
-                    n_estimators=300,
+                    n_estimators=400,
                     max_depth=None,
                     min_samples_split=5,
                     min_samples_leaf=2,
@@ -149,8 +148,8 @@ def build_models(preprocessor: ColumnTransformer) -> dict[str, Pipeline]:
     )
 
     return {
-        "logistic_regression": logistic_model,
-        "random_forest": random_forest_model,
+        "logistic_regression_strict": logistic_model,
+        "random_forest_strict": random_forest_model,
     }
 
 
@@ -161,7 +160,7 @@ def evaluate_model(model: Pipeline, x_test: pd.DataFrame, y_test: pd.Series) -> 
         "accuracy": round(float(accuracy_score(y_test, predictions)), 4),
         "macro_f1": round(float(f1_score(y_test, predictions, average="macro")), 4),
         "weighted_f1": round(float(f1_score(y_test, predictions, average="weighted")), 4),
-        "classification_report": classification_report(y_test, predictions, output_dict=True),
+        "classification_report": classification_report(y_test, predictions, output_dict=True, zero_division=0),
     }
 
     return metrics, pd.Series(predictions, index=x_test.index, name="prediction")
@@ -181,11 +180,11 @@ def save_outputs(best_model: Pipeline, all_metrics: dict, test_results_df: pd.Da
 
     test_results_df.to_csv(TEST_PREDICTIONS_PATH, index=False)
 
-    print("[OK] Saved best model to:")
+    print("[OK] Saved strict best model to:")
     print(BEST_MODEL_PATH)
-    print("\n[OK] Saved metrics to:")
+    print("\n[OK] Saved strict metrics to:")
     print(METRICS_PATH)
-    print("\n[OK] Saved test predictions to:")
+    print("\n[OK] Saved strict test predictions to:")
     print(TEST_PREDICTIONS_PATH)
 
 
@@ -193,7 +192,7 @@ def main() -> None:
     df = load_dataset()
     numeric_features, categorical_features = build_feature_lists(df)
 
-    train_df, test_df = time_based_split(df, test_days=365)
+    train_df, test_df = time_based_split(df, test_days=TEST_DAYS)
 
     x_train = train_df[numeric_features + categorical_features]
     y_train = train_df[TARGET_COLUMN]
@@ -210,18 +209,17 @@ def main() -> None:
     best_macro_f1 = -1
     best_predictions = None
 
-    print("[INFO] Training models...")
+    print("[INFO] Training STRICT models...")
     print(f"Train rows: {len(train_df):,}")
     print(f"Test rows: {len(test_df):,}")
     print(f"Numeric features: {len(numeric_features)}")
     print(f"Categorical features: {len(categorical_features)}")
-    
+
     print("\n[INFO] Train target distribution:")
     print(train_df[TARGET_COLUMN].value_counts().sort_index())
 
     print("\n[INFO] Test target distribution:")
     print(test_df[TARGET_COLUMN].value_counts().sort_index())
-
 
     for model_name, model in models.items():
         print(f"\n[INFO] Training: {model_name}")
@@ -247,9 +245,9 @@ def main() -> None:
 
     save_outputs(best_model, all_metrics, test_results_df)
 
-    print("\n[OK] Best model selected:")
+    print("\n[OK] Best STRICT model selected:")
     print(best_model_name)
-    print(f"Best Macro F1: {best_macro_f1}")
+    print(f"Best STRICT Macro F1: {best_macro_f1}")
 
 
 if __name__ == "__main__":
