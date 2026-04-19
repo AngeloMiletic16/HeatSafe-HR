@@ -1,0 +1,119 @@
+{
+  "success": true,
+  "message": "Live data refresh completed successfully.",
+  "started_at": "2026-04-19T17:27:21.000558",
+  "finished_at": "2026-04-19T17:27:40.119624",
+  "duration_seconds": 19.12,
+  "cities": [
+    "Dubrovnik",
+    "Osijek",
+    "Rijeka",
+    "Split",
+    "Šibenik",
+    "Zadar",
+    "Zagreb"
+  ],
+  "rebuild_escalation_dataset": true,
+  "retrain_models": false,
+  "steps": [
+    {
+      "step_name": "data_ingestion::Dubrovnik",
+      "command": "C:\\Users\\angel\\OneDrive\\Desktop\\HeatSafe HR\\.venv\\Scripts\\python.exe -m src.data_ingestion --city Dubrovnik",
+      "started_at": "2026-04-19T17:27:21.000558",
+      "finished_at": "2026-04-19T17:27:23.139983",
+      "duration_seconds": 2.14,
+      "success": true,
+      "return_code": 0,
+      "stdout": "[OK] Saved Dubrovnik historical hourly data to:\nC:\\Users\\angel\\OneDrive\\Desktop\\HeatSafe HR\\data\\raw\\open_meteo\\dubrovnik_historical_hourly.csv\nRows: 55,224\nColumns: 10",
+      "stderr": ""
+    },
+    {
+      "step_name": "data_ingestion::Osijek",
+      "command": "C:\\Users\\angel\\OneDrive\\Desktop\\HeatSafe HR\\.venv\\Scripts\\python.exe -m src.data_ingestion --city Osijek",
+      "started_at": "2026-04-19T17:27:23.139983",
+      "finished_at": "2026-04-19T17:27:25.287816",
+      "duration_seconds": 2.15,
+      "success": true,
+      "return_code": 0,
+      "stdout": "[OK] Saved Osijek historical hourly data to:\nC:\\Users\\angel\\OneDrive\\Desktop\\HeatSafe HR\\data\\raw\\open_meteo\\osijek_historical_hourly.csv\nRows: 55,224\nColumns: 10",
+      "stderr": ""
+    },
+    {
+      "step_name": "data_ingestion::Rijeka",
+      "command": "C:\\Users\\angel\\OneDrive\\Desktop\\HeatSafe HR\\.venv\\Scripts\\python.exe -m src.data_ingestion --city Rijeka",
+      "started_at": "2026-04-19T17:27:25.287816",
+      "finished_at": "2026-04-19T17:27:29.136980",
+      "duration_seconds": 3.85,
+      "success": true,
+      "return_code": 0,
+      "stdout": "[OK] Saved Rijeka historical hourly data to:\nC:\\Users\\angel\\OneDrive\\Desktop\\HeatSafe HR\\data\\raw\\open_meteo\\rijeka_historical_hourly.csv\nRows: 55,224\nColumns: 10",
+      "stderr": ""
+    },
+    {
+      "step_name": "data_ingestion::Split",
+      "command": "C:\\Users\\angel\\OneDrive\\Desktop\\HeatSafe HR\\.venv\\Scripts\\python.exe -m src.data_ingestion --city Split",
+      "started_at": "2026-04-19T17:27:29.136980",
+      "finished_at": "2026-04-19T17:27:31.159998",
+      "duration_seconds": 2.02,
+      "success": true,
+      "return_code": 0,
+      "stdout": "[OK] Saved Split historical hourly data to:\nC:\\Users\\angel\\OneDrive\\Desktop\\HeatSafe HR\\data\\raw\\open_meteo\\split_historical_hourly.csv\nRows: 55,224\nColumns: 10",
+      "stderr": ""
+    },
+    {
+      "step_name": "data_ingestion::Šibenik",
+      "command": "C:\\Users\\angel\\OneDrive\\Desktop\\HeatSafe HR\\.venv\\Scripts\\python.exe -m src.data_ingestion --city Šibenik",
+      "started_at": "2026-04-19T17:27:31.159998",
+      "finished_at": "2026-04-19T17:27:33.183484",
+      "duration_seconds": 2.02,
+      "success": true,
+      "return_code": 0,
+      "stdout": "[OK] Saved �ibenik historical hourly data to:\nC:\\Users\\angel\\OneDrive\\Desktop\\HeatSafe HR\\data\\raw\\open_meteo\\sibenik_historical_hourly.csv\nRows: 55,224\nColumns: 10",
+      "stderr": ""
+    },
+    {
+      "step_name": "data_ingestion::Zadar",
+      "command": "C:\\Users\\angel\\OneDrive\\Desktop\\HeatSafe HR\\.venv\\Scripts\\python.exe -m src.data_ingestion --city Zadar",
+      "started_at": "2026-04-19T17:27:33.183484",
+      "finished_at": "2026-04-19T17:27:35.199930",
+      "duration_seconds": 2.02,
+      "success": true,
+      "return_code": 0,
+      "stdout": "[OK] Saved Zadar historical hourly data to:\nC:\\Users\\angel\\OneDrive\\Desktop\\HeatSafe HR\\data\\raw\\open_meteo\\zadar_historical_hourly.csv\nRows: 55,224\nColumns: 10",
+      "stderr": ""
+    },
+    {
+      "step_name": "data_ingestion::Zagreb",
+      "command": "C:\\Users\\angel\\OneDrive\\Desktop\\HeatSafe HR\\.venv\\Scripts\\python.exe -m src.data_ingestion --city Zagreb",
+      "started_at": "2026-04-19T17:27:35.199930",
+      "finished_at": "2026-04-19T17:27:37.207044",
+      "duration_seconds": 2.01,
+      "success": true,
+      "return_code": 0,
+      "stdout": "[OK] Saved Zagreb historical hourly data to:\nC:\\Users\\angel\\OneDrive\\Desktop\\HeatSafe HR\\data\\raw\\open_meteo\\zagreb_historical_hourly.csv\nRows: 55,224\nColumns: 10",
+      "stderr": ""
+    },
+    {
+      "step_name": "preprocessing",
+      "command": "C:\\Users\\angel\\OneDrive\\Desktop\\HeatSafe HR\\.venv\\Scripts\\python.exe -m src.preprocessing",
+      "started_at": "2026-04-19T17:27:37.207044",
+      "finished_at": "2026-04-19T17:27:38.806628",
+      "duration_seconds": 1.6,
+      "success": true,
+      "return_code": 0,
+      "stdout": "[OK] Saved merged daily dataset to:\nC:\\Users\\angel\\OneDrive\\Desktop\\HeatSafe HR\\data\\processed\\all_cities_daily.csv\nRows: 16,100\nColumns: 16",
+      "stderr": ""
+    },
+    {
+      "step_name": "build_escalation_dataset",
+      "command": "C:\\Users\\angel\\OneDrive\\Desktop\\HeatSafe HR\\.venv\\Scripts\\python.exe -m src.build_escalation_dataset",
+      "started_at": "2026-04-19T17:27:38.806628",
+      "finished_at": "2026-04-19T17:27:40.119624",
+      "duration_seconds": 1.31,
+      "success": true,
+      "return_code": 0,
+      "stdout": "[OK] Saved escalation dataset to:\nC:\\Users\\angel\\OneDrive\\Desktop\\HeatSafe HR\\data\\processed\\model_dataset_escalation_72h.csv\nRows: 16,079\nColumns: 84\n\n[INFO] target_escalation_72h distribution:\ntarget_escalation_72h\n0    13661\n1     2418\nName: count, dtype: int64",
+      "stderr": ""
+    }
+  ]
+}

@@ -4,16 +4,20 @@ import json
 import sys
 from pathlib import Path
 
-import pandas as pd
-import plotly.graph_objects as go
-import streamlit as st
-
 # Ensure project root is importable
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
+import pandas as pd
+import plotly.graph_objects as go
+import streamlit as st
+
 from src.config import DEFAULT_CITY
+from src.decision_engine import build_city_readiness_summary
+from src.escalation_engine import predict_escalation_from_features
+from src.forecast_engine import make_ml_forecast
+from src.update_live_data import load_refresh_status, refresh_operational_data
 
 st.set_page_config(
     page_title="HeatSafe HR",
@@ -39,6 +43,21 @@ READINESS_MAP = {
     "Visok": "Elevated Readiness",
     "Vrlo visok": "Critical Preparedness",
 }
+ESCALATION_COLOR_MAP = {
+    "Stable": "#64748b",
+    "Watch": "#E6A700",
+    "Likely escalation": "#C0392B",
+}
+
+DASHBOARD_CITIES = [
+    "Dubrovnik",
+    "Osijek",
+    "Rijeka",
+    "Split",
+    "Šibenik",
+    "Zadar",
+    "Zagreb",
+]
 
 
 @st.cache_data
@@ -135,6 +154,8 @@ def inject_custom_css() -> None:
             color: #475569;
             font-weight: 600;
             margin-bottom: 0.45rem;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
         }
 
         .metric-value {
@@ -174,6 +195,8 @@ def inject_custom_css() -> None:
             color: white;
             font-weight: 700;
             font-size: 0.94rem;
+            margin-right: 0.35rem;
+            margin-bottom: 0.35rem;
         }
 
         .top-city-card {
@@ -222,22 +245,6 @@ def inject_custom_css() -> None:
     )
 
 
-def get_latest_city_snapshot(df: pd.DataFrame, city: str) -> pd.Series:
-    city_df = df[df["city"] == city].sort_values("date")
-    return city_df.iloc[-1]
-
-
-def get_latest_all_cities(df: pd.DataFrame) -> pd.DataFrame:
-    latest_per_city = (
-        df.sort_values(["city", "date"])
-        .groupby("city", as_index=False)
-        .tail(1)
-        .sort_values(["heat_risk_score", "apparent_temp_max"], ascending=[False, False])
-        .reset_index(drop=True)
-    )
-    return latest_per_city
-
-
 def risk_color(level: str) -> str:
     return RISK_COLOR_MAP.get(level, "#666666")
 
@@ -254,47 +261,11 @@ def render_status_pill(level: str) -> None:
     )
 
 
-def format_metric(value: float | int, suffix: str = "") -> str:
-    if pd.isna(value):
-        return "N/A"
-    if isinstance(value, int):
-        return f"{value}{suffix}"
-    return f"{value:.1f}{suffix}"
-
-
-def build_model_summary_table(metrics_v1: dict, metrics_v2: dict) -> pd.DataFrame:
-    rows = []
-
-    if metrics_v1:
-        best_model_name = metrics_v1.get("best_model", "N/A")
-        model_metrics = metrics_v1.get(best_model_name, {})
-        rows.append(
-            {
-                "Model version": "Production model (v1)",
-                "Best model": best_model_name,
-                "Accuracy": model_metrics.get("accuracy"),
-                "Macro F1": model_metrics.get("macro_f1"),
-                "Weighted F1": model_metrics.get("weighted_f1"),
-            }
-        )
-
-    if metrics_v2:
-        best_model_name = metrics_v2.get("best_model", "N/A")
-        model_metrics = metrics_v2.get(best_model_name, {})
-        rows.append(
-            {
-                "Model version": "Strict model (v2)",
-                "Best model": best_model_name,
-                "Accuracy": model_metrics.get("accuracy"),
-                "Macro F1": model_metrics.get("macro_f1"),
-                "Weighted F1": model_metrics.get("weighted_f1"),
-            }
-        )
-
-    if not rows:
-        return pd.DataFrame()
-
-    return pd.DataFrame(rows)
+def escalation_badge(text: str, color: str) -> None:
+    st.markdown(
+        f'<span class="status-pill" style="background:{color};">{text}</span>',
+        unsafe_allow_html=True,
+    )
 
 
 def render_metric_card(label: str, value: str, subtitle: str = "") -> None:
@@ -333,6 +304,127 @@ def build_gauge(score: float, title: str):
     return fig
 
 
+def build_model_summary_table(metrics_v1: dict, metrics_v2: dict) -> pd.DataFrame:
+    rows = []
+
+    if metrics_v1:
+        best_model_name = metrics_v1.get("best_model", "N/A")
+        model_metrics = metrics_v1.get(best_model_name, {})
+        rows.append(
+            {
+                "Model version": "Production model (v1)",
+                "Best model": best_model_name,
+                "Accuracy": model_metrics.get("accuracy"),
+                "Macro F1": model_metrics.get("macro_f1"),
+                "Weighted F1": model_metrics.get("weighted_f1"),
+            }
+        )
+
+    if metrics_v2:
+        best_model_name = metrics_v2.get("best_model", "N/A")
+        model_metrics = metrics_v2.get(best_model_name, {})
+        rows.append(
+            {
+                "Model version": "Strict model (v2)",
+                "Best model": best_model_name,
+                "Accuracy": model_metrics.get("accuracy"),
+                "Macro F1": model_metrics.get("macro_f1"),
+                "Weighted F1": model_metrics.get("weighted_f1"),
+            }
+        )
+
+    if not rows:
+        return pd.DataFrame()
+
+    return pd.DataFrame(rows)
+
+
+def build_live_escalation_snapshot(city: str, forecast_df: pd.DataFrame) -> dict:
+    if forecast_df.empty:
+        return {
+            "escalation_probability_72h": None,
+            "escalation_flag_72h": None,
+            "escalation_label_72h": None,
+            "operator_message": "Escalation signal nije dostupan.",
+        }
+
+    snapshot_df = forecast_df.sort_values("date").head(1).copy()
+
+    if "city" not in snapshot_df.columns:
+        snapshot_df["city"] = city
+
+    pred_df = predict_escalation_from_features(snapshot_df)
+    row = pred_df.iloc[0]
+
+    probability = float(row["escalation_probability_72h"])
+    label = str(row["escalation_label_72h"])
+    flag = int(row["escalation_flag_72h"])
+
+    if label == "Stable":
+        operator_message = (
+            f"72h escalation probability is {probability:.2f}. "
+            "Signal je nizak i grad trenutno ne pokazuje kratkoročnu eskalaciju."
+        )
+    elif label == "Watch":
+        operator_message = (
+            f"72h escalation probability is {probability:.2f}. "
+            "Potrebno je pojačano praćenje jer postoji srednji signal pogoršanja unutar 72 sata."
+        )
+    else:
+        operator_message = (
+            f"72h escalation probability is {probability:.2f}. "
+            "Likely escalation detected; preporučuje se rana priprema i proaktivna komunikacija."
+        )
+
+    return {
+        "escalation_probability_72h": probability,
+        "escalation_flag_72h": flag,
+        "escalation_label_72h": label,
+        "operator_message": operator_message,
+    }
+
+
+@st.cache_data(ttl=1800)
+def build_command_dashboard_snapshot(cities: list[str]) -> pd.DataFrame:
+    rows = []
+
+    for city in cities:
+        forecast_df = make_ml_forecast(city)
+
+        if "city" not in forecast_df.columns:
+            forecast_df["city"] = city
+
+        forecast_df["date"] = pd.to_datetime(forecast_df["date"])
+
+        summary = build_city_readiness_summary(city, forecast_df)
+        escalation = build_live_escalation_snapshot(city, forecast_df)
+
+        first_row = forecast_df.sort_values("date").iloc[0]
+
+        rows.append(
+            {
+                "city": city,
+                "date": pd.to_datetime(first_row["date"]),
+                "risk_level": first_row["heuristic_risk_level"],
+                "heat_risk_score": float(first_row["heuristic_risk_score"]),
+                "temp_max": float(first_row["temp_max"]),
+                "apparent_temp_max": float(first_row["apparent_temp_max"]),
+                "humidity_mean": float(first_row["humidity_mean"]),
+                "wind_speed_mean": float(first_row["wind_speed_mean"]) if "wind_speed_mean" in first_row else None,
+                "readiness_status": summary["readiness_status"],
+                "next_7d_peak_level": summary["next_7d_peak_level"],
+                "next_7d_peak_score": float(summary["next_7d_peak_score"]),
+                "high_risk_days": int(summary["high_risk_days"]),
+                "escalation_probability_72h": escalation["escalation_probability_72h"],
+                "escalation_label_72h": escalation["escalation_label_72h"],
+                "escalation_flag_72h": escalation["escalation_flag_72h"],
+                "escalation_operator_message": escalation["operator_message"],
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+
 # ---------- Load ----------
 inject_custom_css()
 
@@ -346,8 +438,19 @@ default_index = cities.index(DEFAULT_CITY) if DEFAULT_CITY in cities else 0
 if "selected_city" not in st.session_state:
     st.session_state.selected_city = DEFAULT_CITY if DEFAULT_CITY in cities else cities[0]
 
-latest_all_cities = get_latest_all_cities(df)
-latest_available_date = pd.to_datetime(latest_all_cities["date"]).max()
+dashboard_snapshot_df = build_command_dashboard_snapshot(DASHBOARD_CITIES)
+
+latest_available_date = max(
+    pd.to_datetime(df["date"]).max(),
+    pd.to_datetime(dashboard_snapshot_df["date"]).max(),
+)
+
+last_refresh_status = load_refresh_status()
+
+ranked_cities_df = dashboard_snapshot_df.sort_values(
+    ["escalation_probability_72h", "next_7d_peak_score", "heat_risk_score"],
+    ascending=[False, False, False],
+).reset_index(drop=True)
 
 # ---------- Sidebar ----------
 st.sidebar.title("HeatSafe HR")
@@ -358,15 +461,50 @@ selected_city = st.sidebar.selectbox(
 )
 st.session_state.selected_city = selected_city
 
-city_snapshot = get_latest_city_snapshot(df, selected_city)
+st.sidebar.markdown("### Live data")
+
+if st.sidebar.button("🔄 Osvježi podatke", use_container_width=True):
+    with st.spinner("Osvježavam podatke za sve gradove..."):
+        refresh_status = refresh_operational_data(
+            rebuild_escalation_dataset=True,
+            retrain_models=False,
+            fail_fast=True,
+        )
+
+    if refresh_status["success"]:
+        st.cache_data.clear()
+        st.success("Podaci su uspješno osvježeni.")
+        st.rerun()
+    else:
+        st.error("Došlo je do greške tijekom osvježavanja podataka.")
+        with st.expander("Detalji refresha"):
+            st.code(json.dumps(refresh_status, indent=2, ensure_ascii=False))
+
+if last_refresh_status:
+    finished_at = last_refresh_status.get("finished_at")
+    success_flag = last_refresh_status.get("success")
+
+    if finished_at:
+        st.sidebar.caption(
+            f"Zadnji refresh: {pd.to_datetime(finished_at).strftime('%d.%m.%Y. %H:%M')}"
+        )
+    st.sidebar.caption(f"Status: {'OK' if success_flag else 'Error'}")
+else:
+    st.sidebar.caption("Zadnji refresh: još nije pokrenut")
+
+selected_city_snapshot = ranked_cities_df[ranked_cities_df["city"] == selected_city].iloc[0]
 
 metrics_v1_best = metrics_v1.get(metrics_v1.get("best_model", ""), {})
 metrics_v2_best = metrics_v2.get(metrics_v2.get("best_model", ""), {})
 
 st.sidebar.markdown("### Status")
 st.sidebar.markdown(f"**Grad:** {selected_city}")
-st.sidebar.markdown(f"**Risk level:** {city_snapshot['risk_level']}")
-st.sidebar.markdown(f"**Readiness:** {readiness_from_level(str(city_snapshot['risk_level']))}")
+st.sidebar.markdown(f"**Risk level:** {selected_city_snapshot['risk_level']}")
+st.sidebar.markdown(f"**Readiness:** {selected_city_snapshot['readiness_status']}")
+st.sidebar.markdown(
+    f"**72h escalation:** {selected_city_snapshot['escalation_label_72h']} "
+    f"({selected_city_snapshot['escalation_probability_72h']:.2f})"
+)
 
 st.sidebar.markdown("### Brza navigacija")
 st.sidebar.page_link("Home.py", label="Home", icon="🏠")
@@ -375,11 +513,16 @@ st.sidebar.page_link("pages/2_History.py", label="History", icon="🕘")
 st.sidebar.page_link("pages/3_Insights.py", label="Insights", icon="🧠")
 st.sidebar.page_link("pages/4_Forecast.py", label="Forecast", icon="🔮")
 st.sidebar.page_link("pages/5_Action_Center.py", label="Action Center", icon="🚨")
+st.sidebar.page_link("pages/6_Command_Dashboard.py", label="Command Dashboard", icon="🧭")
 st.sidebar.page_link("pages/7_Methodology_Research.py", label="Methodology / Research", icon="🧪")
+st.sidebar.page_link("pages/8_Public_Advisory.py", label="Public Advisory", icon="📣")
+st.sidebar.page_link("pages/9_Resources_Map.py", label="Resources Map", icon="🧊")
+st.sidebar.page_link("pages/10_Alert_Center.py", label="Alert Center", icon="🚨")
+st.sidebar.page_link("pages/11_Historical_Replay.py", label="Historical Replay", icon="⏪")
 
 # ---------- Hero ----------
 st.markdown(
-    f"""
+    """
     <div class="hero-box">
         <div class="hero-title">🌡️ HeatSafe HR</div>
         <div class="hero-subtitle">
@@ -437,71 +580,142 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+highest_escalation_row = ranked_cities_df.sort_values(
+    ["escalation_probability_72h", "next_7d_peak_score"],
+    ascending=[False, False],
+).iloc[0]
+
+st.markdown(
+    f"""
+    <div class="soft-note">
+        <b>V3 early-warning signal:</b> trenutno najveću 72h vjerojatnost eskalacije ima grad
+        <b>{highest_escalation_row['city']}</b> uz probability
+        <b>{highest_escalation_row['escalation_probability_72h']:.2f}</b>
+        i signal <b>{highest_escalation_row['escalation_label_72h']}</b>.
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+if last_refresh_status:
+    finished_at = last_refresh_status.get("finished_at")
+    success_flag = last_refresh_status.get("success")
+
+    if finished_at:
+        st.markdown(
+            f"""
+            <div class="soft-note">
+                <b>Live refresh status:</b> zadnje osvježavanje podataka završilo je
+                <b>{pd.to_datetime(finished_at).strftime('%d.%m.%Y. u %H:%M')}</b>
+                uz status <b>{'OK' if success_flag else 'Error'}</b>.
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
 st.divider()
 
 # ---------- Selected city summary ----------
 st.markdown('<div class="section-title">Selected city command view</div>', unsafe_allow_html=True)
 
-left, middle, right = st.columns([1.15, 1.15, 1])
+left, middle, right = st.columns([1.05, 1.1, 1])
 
 with left:
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.markdown(f"### {selected_city}")
-    render_status_pill(str(city_snapshot["risk_level"]))
+    render_status_pill(str(selected_city_snapshot["risk_level"]))
+    escalation_badge(
+        selected_city_snapshot["escalation_label_72h"],
+        ESCALATION_COLOR_MAP.get(selected_city_snapshot["escalation_label_72h"], "#64748b"),
+    )
     st.markdown("")
-    st.markdown(f"**Readiness status:** {readiness_from_level(str(city_snapshot['risk_level']))}")
-    st.markdown(f"**Heat Risk Score:** {city_snapshot['heat_risk_score']:.1f}")
-    st.markdown(f"**Temp max:** {city_snapshot['temp_max']:.1f} °C")
-    st.markdown(f"**Apparent temp max:** {city_snapshot['apparent_temp_max']:.1f} °C")
-    st.markdown(f"**Humidity mean:** {city_snapshot['humidity_mean']:.1f} %")
-    st.markdown(f"**Wind speed mean:** {city_snapshot['wind_speed_mean']:.1f} m/s")
-    st.markdown(f"**Date:** {pd.to_datetime(city_snapshot['date']).strftime('%d.%m.%Y.')}")
+    st.markdown(f"**Readiness status:** {selected_city_snapshot['readiness_status']}")
+    st.markdown(f"**Heat Risk Score:** {selected_city_snapshot['heat_risk_score']:.1f}")
+    st.markdown(f"**72h escalation probability:** {selected_city_snapshot['escalation_probability_72h']:.2f}")
+    st.markdown(f"**Temp max:** {selected_city_snapshot['temp_max']:.1f} °C")
+    st.markdown(f"**Apparent temp max:** {selected_city_snapshot['apparent_temp_max']:.1f} °C")
+    st.markdown(f"**Humidity mean:** {selected_city_snapshot['humidity_mean']:.1f} %")
+    if pd.notna(selected_city_snapshot["wind_speed_mean"]):
+        st.markdown(f"**Wind speed mean:** {selected_city_snapshot['wind_speed_mean']:.1f} m/s")
+    st.markdown(f"**Date:** {pd.to_datetime(selected_city_snapshot['date']).strftime('%d.%m.%Y.')}")
     st.markdown("</div>", unsafe_allow_html=True)
 
 with middle:
-    gauge_fig = build_gauge(city_snapshot["heat_risk_score"], "Current Heat Risk Score")
+    gauge_fig = build_gauge(selected_city_snapshot["heat_risk_score"], "Current Heat Risk Score")
     st.plotly_chart(gauge_fig, use_container_width=True)
 
 with right:
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.markdown("### Quick interpretation")
-    st.write(
-        f"""
-        Za grad **{selected_city}** zadnji zapis pokazuje razinu rizika
-        **{city_snapshot['risk_level']}** uz score **{city_snapshot['heat_risk_score']:.1f}**.
-        Sustav trenutno procjenjuje readiness status **{readiness_from_level(str(city_snapshot['risk_level']))}**.
-        """
+    quick_text = (
+        f"Za grad **{selected_city_snapshot['city']}** trenutni forecast signal pokazuje "
+        f"razinu rizika **{selected_city_snapshot['risk_level']}** uz score "
+        f"**{selected_city_snapshot['heat_risk_score']:.1f}**. "
+        f"Sustav procjenjuje readiness status **{selected_city_snapshot['readiness_status']}**.\n\n"
+        f"V3 early-warning model daje **72h escalation probability = "
+        f"{selected_city_snapshot['escalation_probability_72h']:.2f}** "
+        f"i signal **{selected_city_snapshot['escalation_label_72h']}**."
     )
-    if str(city_snapshot["risk_level"]) == "Nizak":
+    st.write(quick_text)
+
+    if str(selected_city_snapshot["risk_level"]) == "Nizak":
         st.success("Rutinsko praćenje uvjeta.")
-    elif str(city_snapshot["risk_level"]) == "Umjeren":
+    elif str(selected_city_snapshot["risk_level"]) == "Umjeren":
         st.warning("Pojačano praćenje i priprema komunikacije.")
-    elif str(city_snapshot["risk_level"]) == "Visok":
+    elif str(selected_city_snapshot["risk_level"]) == "Visok":
         st.warning("Povećana pripravnost i operativni fokus.")
     else:
         st.error("Kritična pripravnost i pojačane mjere.")
+
+    st.info(selected_city_snapshot["escalation_operator_message"])
     st.markdown("</div>", unsafe_allow_html=True)
+
+st.markdown('<div class="section-title">72h escalation early-warning</div>', unsafe_allow_html=True)
+
+esc1, esc2, esc3 = st.columns(3)
+with esc1:
+    render_metric_card(
+        "72h escalation probability",
+        f"{selected_city_snapshot['escalation_probability_72h']:.2f}",
+        "V3 early-warning model",
+    )
+with esc2:
+    render_metric_card(
+        "Escalation signal",
+        selected_city_snapshot["escalation_label_72h"],
+        selected_city_snapshot["readiness_status"],
+    )
+with esc3:
+    render_metric_card(
+        "Next 7d peak",
+        selected_city_snapshot["next_7d_peak_level"],
+        f"{selected_city_snapshot['next_7d_peak_score']:.1f}",
+    )
 
 st.divider()
 
 # ---------- Top cities ----------
 st.markdown('<div class="section-title">Top city risk snapshot</div>', unsafe_allow_html=True)
 
-top_cols = st.columns(min(3, len(latest_all_cities)))
-for i, (_, row) in enumerate(latest_all_cities.head(3).iterrows()):
+top_cols = st.columns(min(3, len(ranked_cities_df)))
+for i, (_, row) in enumerate(ranked_cities_df.head(3).iterrows()):
     with top_cols[i]:
-        color = risk_color(str(row["risk_level"]))
+        risk_badge_color = RISK_COLOR_MAP.get(str(row["risk_level"]), "#64748b")
+        escalation_badge_color = ESCALATION_COLOR_MAP.get(str(row["escalation_label_72h"]), "#64748b")
+
         st.markdown(
             f"""
             <div class="top-city-card">
                 <div class="mini-title">City rank #{i+1}</div>
                 <div class="big-city">{row['city']}</div>
                 <div style="margin:0.35rem 0 0.55rem 0;">
-                    <span class="status-pill" style="background:{color};">{row['risk_level']}</span>
+                    <span class="status-pill" style="background:{risk_badge_color};">{row['risk_level']}</span>
+                    <span class="status-pill" style="background:{escalation_badge_color};">{row['escalation_label_72h']}</span>
                 </div>
                 <div class="small-muted">Heat Risk Score: <b>{row['heat_risk_score']:.1f}</b></div>
-                <div class="small-muted">Apparent temp max: <b>{row['apparent_temp_max']:.1f} °C</b></div>
-                <div class="small-muted">Temp max: <b>{row['temp_max']:.1f} °C</b></div>
+                <div class="small-muted">72h escalation prob.: <b>{row['escalation_probability_72h']:.2f}</b></div>
+                <div class="small-muted">Next 7d peak: <b>{row['next_7d_peak_level']} ({row['next_7d_peak_score']:.1f})</b></div>
+                <div class="small-muted">Readiness: <b>{row['readiness_status']}</b></div>
                 <div class="small-muted">Date: <b>{pd.to_datetime(row['date']).strftime('%d.%m.%Y.')}</b></div>
             </div>
             """,
@@ -510,23 +724,29 @@ for i, (_, row) in enumerate(latest_all_cities.head(3).iterrows()):
 
 st.markdown("")
 
-display_cols = [
-    "city",
-    "date",
-    "risk_level",
-    "heat_risk_score",
-    "temp_max",
-    "apparent_temp_max",
-    "humidity_mean",
-    "wind_speed_mean",
-]
-overview_df = latest_all_cities[display_cols].copy()
-overview_df["date"] = pd.to_datetime(overview_df["date"]).dt.strftime("%d.%m.%Y.")
-st.dataframe(overview_df, use_container_width=True, hide_index=True)
+command_table_df = ranked_cities_df[
+    [
+        "city",
+        "date",
+        "risk_level",
+        "heat_risk_score",
+        "next_7d_peak_level",
+        "next_7d_peak_score",
+        "high_risk_days",
+        "escalation_probability_72h",
+        "escalation_label_72h",
+        "readiness_status",
+        "temp_max",
+        "apparent_temp_max",
+        "humidity_mean",
+    ]
+].copy()
+command_table_df["date"] = pd.to_datetime(command_table_df["date"]).dt.strftime("%d.%m.%Y.")
+st.dataframe(command_table_df, use_container_width=True, hide_index=True)
 
 st.divider()
 
-# ---------- Product modules ----------
+# ---------- Platform modules ----------
 st.markdown('<div class="section-title">Platform modules</div>', unsafe_allow_html=True)
 
 m1, m2, m3 = st.columns(3)
@@ -588,7 +808,7 @@ if not model_summary_df.empty:
 else:
     st.warning("Model metrics još nisu dostupne.")
 
-c1, c2 = st.columns(2)
+c1, c2, c3 = st.columns(3)
 
 with c1:
     st.markdown(
@@ -596,10 +816,9 @@ with c1:
         <div class="card">
             <h4>Production model (v1)</h4>
             <p>
-            Operativni model za platformu, optimiziran za praktičnu upotrebu i decision-support
-            kontekst unutar sustava.
+            Operativni multiclass model optimiziran za praktičnu procjenu razine toplinskog rizika.
             </p>
-            </div>
+        </div>
         """,
         unsafe_allow_html=True,
     )
@@ -613,7 +832,21 @@ with c2:
             Metodološki stroža validacijska verzija bez oslanjanja na
             <code>heat_risk_score*</code> featuree, važna za istraživačku ozbiljnost projekta.
             </p>
-            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+with c3:
+    st.markdown(
+        """
+        <div class="card">
+            <h4>Escalation model (v3)</h4>
+            <p>
+            72h early-warning model koji procjenjuje vjerojatnost ulaska grada u
+            ozbiljniji toplinski rizik unutar sljedeća tri dana.
+            </p>
+        </div>
         """,
         unsafe_allow_html=True,
     )
@@ -675,10 +908,10 @@ st.divider()
 st.markdown(
     """
     <div class="soft-note">
-        <b>Current product status:</b> HeatSafe HR već sada kombinira data pipeline,
-        AI/ML modeliranje, forecast simulation i operativni alerting u jedinstven alat
-        za toplinski rizik. Sljedeći koraci su dodatni polish, export/reporting i finalni
-        competition narrative.
+        <b>Current product status:</b> HeatSafe HR sada kombinira data pipeline,
+        multiclass AI/ML procjenu rizika, 72h escalation early-warning model,
+        forecast simulation i operativni alerting u jedinstven alat
+        za toplinski rizik u hrvatskim gradovima.
     </div>
     """,
     unsafe_allow_html=True,
