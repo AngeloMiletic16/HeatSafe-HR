@@ -19,6 +19,12 @@ from src.escalation_engine import predict_escalation_from_features
 from src.forecast_engine import make_ml_forecast
 from src.update_live_data import load_refresh_status, refresh_operational_data
 from src.resource_recommender import recommend_resources
+from src.vulnerability_engine import (
+    build_impact_adjusted_priority,
+    build_vulnerability_recommendations,
+    get_city_vulnerability_snapshot,
+    identify_vulnerability_drivers,
+)
 
 st.set_page_config(
     page_title="HeatSafe HR",
@@ -240,6 +246,53 @@ def inject_custom_css() -> None:
         .stDataFrame, .stPlotlyChart {
             border-radius: 14px;
         }
+                .insight-card {
+            background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+            border: 1px solid rgba(15,23,42,0.08);
+            border-radius: 18px;
+            padding: 1rem 1.05rem;
+            box-shadow: 0 8px 24px rgba(15,23,42,0.06);
+            min-height: 220px;
+            height: 100%;
+        }
+
+        .insight-card-title {
+            font-size: 1.08rem;
+            font-weight: 800;
+            color: #0f172a;
+            margin-bottom: 0.8rem;
+        }
+
+        .insight-card-sub {
+            font-size: 0.85rem;
+            color: #64748b;
+            margin-bottom: 0.85rem;
+            line-height: 1.5;
+        }
+
+        .insight-list {
+            margin: 0;
+            padding-left: 1.15rem;
+            color: #334155;
+            line-height: 1.75;
+            font-size: 0.95rem;
+        }
+
+        .insight-list li {
+            margin-bottom: 0.5rem;
+        }
+
+        .section-note {
+            background: #f8fafc;
+            border: 1px solid rgba(15,23,42,0.08);
+            border-radius: 14px;
+            padding: 0.8rem 0.95rem;
+            color: #334155;
+            font-size: 0.93rem;
+            line-height: 1.6;
+            margin-top: 0.55rem;
+            margin-bottom: 0.9rem;
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -276,6 +329,21 @@ def render_metric_card(label: str, value: str, subtitle: str = "") -> None:
             <div class="metric-label">{label}</div>
             <div class="metric-value">{value}</div>
             <div class="metric-sub">{subtitle}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+def render_insight_list_card(title: str, items: list[str], subtitle: str = "") -> None:
+    list_html = "".join(f"<li>{item}</li>" for item in items)
+    st.markdown(
+        f"""
+        <div class="insight-card">
+            <div class="insight-card-title">{title}</div>
+            {f'<div class="insight-card-sub">{subtitle}</div>' if subtitle else ''}
+            <ul class="insight-list">
+                {list_html}
+            </ul>
         </div>
         """,
         unsafe_allow_html=True,
@@ -399,7 +467,14 @@ def build_command_dashboard_snapshot(cities: list[str]) -> pd.DataFrame:
 
         summary = build_city_readiness_summary(city, forecast_df)
         escalation = build_live_escalation_snapshot(city, forecast_df)
+        vulnerability_snapshot = get_city_vulnerability_snapshot(city)
 
+        impact_adjusted_priority = build_impact_adjusted_priority(
+            next_7d_peak_score=float(summary["next_7d_peak_score"]),
+            escalation_probability_72h=escalation["escalation_probability_72h"],
+            vulnerability_index=float(vulnerability_snapshot["vulnerability_index"]),
+        )
+        
         first_row = forecast_df.sort_values("date").iloc[0]
 
         rows.append(
@@ -416,6 +491,9 @@ def build_command_dashboard_snapshot(cities: list[str]) -> pd.DataFrame:
                 "next_7d_peak_level": summary["next_7d_peak_level"],
                 "next_7d_peak_score": float(summary["next_7d_peak_score"]),
                 "high_risk_days": int(summary["high_risk_days"]),
+                "vulnerability_index": float(vulnerability_snapshot["vulnerability_index"]),
+                "vulnerability_band": vulnerability_snapshot["vulnerability_band"],
+                "impact_adjusted_priority": float(impact_adjusted_priority),
                 "escalation_probability_72h": escalation["escalation_probability_72h"],
                 "escalation_label_72h": escalation["escalation_label_72h"],
                 "escalation_flag_72h": escalation["escalation_flag_72h"],
@@ -449,8 +527,8 @@ latest_available_date = max(
 last_refresh_status = load_refresh_status()
 
 ranked_cities_df = dashboard_snapshot_df.sort_values(
-    ["escalation_probability_72h", "next_7d_peak_score", "heat_risk_score"],
-    ascending=[False, False, False],
+    ["impact_adjusted_priority", "escalation_probability_72h", "next_7d_peak_score", "heat_risk_score"],
+    ascending=[False, False, False, False],
 ).reset_index(drop=True)
 
 # ---------- Sidebar ----------
@@ -494,6 +572,9 @@ else:
     st.sidebar.caption("Zadnji refresh: još nije pokrenut")
 
 selected_city_snapshot = ranked_cities_df[ranked_cities_df["city"] == selected_city].iloc[0]
+selected_city_vulnerability = get_city_vulnerability_snapshot(selected_city)
+selected_city_vulnerability_drivers = identify_vulnerability_drivers(selected_city_vulnerability)
+selected_city_vulnerability_recommendations = build_vulnerability_recommendations(selected_city_vulnerability)
 recommended_resources_df = recommend_resources(
     city=selected_city,
     escalation_label=selected_city_snapshot["escalation_label_72h"],
@@ -510,6 +591,13 @@ st.sidebar.markdown(f"**Readiness:** {selected_city_snapshot['readiness_status']
 st.sidebar.markdown(
     f"**72h escalation:** {selected_city_snapshot['escalation_label_72h']} "
     f"({selected_city_snapshot['escalation_probability_72h']:.2f})"
+)
+st.sidebar.markdown(
+    f"**Vulnerability:** {selected_city_snapshot['vulnerability_band']} "
+    f"({selected_city_snapshot['vulnerability_index']:.1f})"
+)
+st.sidebar.markdown(
+    f"**Impact-adjusted priority:** {selected_city_snapshot['impact_adjusted_priority']:.1f}"
 )
 
 st.sidebar.markdown("### Brza navigacija")
@@ -638,6 +726,9 @@ with left:
     st.markdown(f"**Readiness status:** {selected_city_snapshot['readiness_status']}")
     st.markdown(f"**Heat Risk Score:** {selected_city_snapshot['heat_risk_score']:.1f}")
     st.markdown(f"**72h escalation probability:** {selected_city_snapshot['escalation_probability_72h']:.2f}")
+    st.markdown(f"**Vulnerability index:** {selected_city_snapshot['vulnerability_index']:.1f}")
+    st.markdown(f"**Vulnerability band:** {selected_city_snapshot['vulnerability_band']}")
+    st.markdown(f"**Impact-adjusted priority:** {selected_city_snapshot['impact_adjusted_priority']:.1f}")
     st.markdown(f"**Temp max:** {selected_city_snapshot['temp_max']:.1f} °C")
     st.markdown(f"**Apparent temp max:** {selected_city_snapshot['apparent_temp_max']:.1f} °C")
     st.markdown(f"**Humidity mean:** {selected_city_snapshot['humidity_mean']:.1f} %")
@@ -661,6 +752,11 @@ with right:
         f"V3 early-warning model daje **72h escalation probability = "
         f"{selected_city_snapshot['escalation_probability_72h']:.2f}** "
         f"i signal **{selected_city_snapshot['escalation_label_72h']}**."
+        f"\n\nSocio-economic vulnerability layer daje indeks "
+        f"**{selected_city_snapshot['vulnerability_index']:.1f}** "
+        f"uz band **{selected_city_snapshot['vulnerability_band']}**, "
+        f"pa impact-adjusted priority iznosi "
+        f"**{selected_city_snapshot['impact_adjusted_priority']:.1f}**."
     )
     st.write(quick_text)
 
@@ -678,7 +774,7 @@ with right:
 
 st.markdown('<div class="section-title">72h escalation early-warning</div>', unsafe_allow_html=True)
 
-esc1, esc2, esc3 = st.columns(3)
+esc1, esc2, esc3, esc4 = st.columns(4)
 with esc1:
     render_metric_card(
         "72h escalation probability",
@@ -696,6 +792,62 @@ with esc3:
         "Next 7d peak",
         selected_city_snapshot["next_7d_peak_level"],
         f"{selected_city_snapshot['next_7d_peak_score']:.1f}",
+    )
+with esc4:
+    render_metric_card(
+        "Vulnerability band",
+        selected_city_snapshot["vulnerability_band"],
+        f"{selected_city_snapshot['vulnerability_index']:.1f}",
+    )
+
+st.divider()
+
+st.markdown('<div class="section-title">Socio-economic vulnerability layer</div>', unsafe_allow_html=True)
+
+st.markdown(
+    """
+    <div class="section-note">
+        Ovaj sloj ne gleda samo meteorološki signal, nego procjenjuje koliko bi toplinski rizik
+        mogao imati veći društveni učinak zbog urban heat island efekta, turizma, starijeg stanovništva,
+        dostupnosti cooling centara i drugih ranjivosti.
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+v1, v2, v3 = st.columns(3)
+with v1:
+    render_metric_card(
+        "Vulnerability index",
+        f"{selected_city_snapshot['vulnerability_index']:.1f}",
+        "City-level profile",
+    )
+with v2:
+    render_metric_card(
+        "Vulnerability band",
+        selected_city_snapshot["vulnerability_band"],
+        "Human-impact context",
+    )
+with v3:
+    render_metric_card(
+        "Impact-adjusted priority",
+        f"{selected_city_snapshot['impact_adjusted_priority']:.1f}",
+        "Heat + escalation + vulnerability",
+    )
+
+vv1, vv2 = st.columns(2)
+with vv1:
+    render_insight_list_card(
+        "Main vulnerability drivers",
+        selected_city_vulnerability_drivers,
+        "Key structural factors that can increase heat impact in this city.",
+    )
+
+with vv2:
+    render_insight_list_card(
+        "Vulnerability-sensitive recommendations",
+        selected_city_vulnerability_recommendations,
+        "Targeted actions that should accompany forecast and alert decisions.",
     )
 
 st.divider()
@@ -744,6 +896,8 @@ for i, (_, row) in enumerate(ranked_cities_df.head(3).iterrows()):
                 </div>
                 <div class="small-muted">Heat Risk Score: <b>{row['heat_risk_score']:.1f}</b></div>
                 <div class="small-muted">72h escalation prob.: <b>{row['escalation_probability_72h']:.2f}</b></div>
+                <div class="small-muted">Vulnerability: <b>{row['vulnerability_band']} ({row['vulnerability_index']:.1f})</b></div>
+                <div class="small-muted">Impact-adjusted priority: <b>{row['impact_adjusted_priority']:.1f}</b></div>
                 <div class="small-muted">Next 7d peak: <b>{row['next_7d_peak_level']} ({row['next_7d_peak_score']:.1f})</b></div>
                 <div class="small-muted">Readiness: <b>{row['readiness_status']}</b></div>
                 <div class="small-muted">Date: <b>{pd.to_datetime(row['date']).strftime('%d.%m.%Y.')}</b></div>
@@ -765,6 +919,9 @@ command_table_df = ranked_cities_df[
         "high_risk_days",
         "escalation_probability_72h",
         "escalation_label_72h",
+        "vulnerability_index",
+        "vulnerability_band",
+        "impact_adjusted_priority",
         "readiness_status",
         "temp_max",
         "apparent_temp_max",

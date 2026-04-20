@@ -23,8 +23,27 @@ from src.decision_engine import (
     readiness_to_color,
     risk_to_color,
 )
+from src.escalation_engine import predict_escalation_from_features
 from src.forecast_engine import make_ml_forecast
-
+from src.impact_engine import (
+    build_civil_protection_executive_brief,
+    build_operational_triggers,
+    identify_primary_impacts,
+    identify_priority_groups,
+    impact_band_from_peak,
+)
+from src.resource_recommender import recommend_resources
+from src.vulnerability_engine import (
+    build_impact_adjusted_priority,
+    build_vulnerability_recommendations,
+    get_city_vulnerability_snapshot,
+    identify_vulnerability_drivers,
+)
+from src.xai_engine import explain_escalation_row
+from src.resource_routing_engine import (
+    build_top_dispatch_summary,
+    recommend_dispatch_resources,
+)
 
 RISK_COLOR_MAP = {
     "Nizak": "#2E8B57",
@@ -32,7 +51,6 @@ RISK_COLOR_MAP = {
     "Visok": "#E67E22",
     "Vrlo visok": "#C0392B",
 }
-
 
 st.markdown(
     """
@@ -246,6 +264,15 @@ def render_text_card(title: str, body_html: str) -> None:
     )
 
 
+def driver_items(driver_list: list[dict]) -> list[str]:
+    if not driver_list:
+        return ["Nema dostupnih drivera za ovaj signal."]
+    return [
+        f"{item['feature']} (contribution: {item['contribution']})"
+        for item in driver_list
+    ]
+
+
 def to_display_date(df: pd.DataFrame, column: str = "date") -> pd.DataFrame:
     out = df.copy()
     out[column] = pd.to_datetime(out[column]).dt.strftime("%d.%m.%Y.")
@@ -254,6 +281,28 @@ def to_display_date(df: pd.DataFrame, column: str = "date") -> pd.DataFrame:
 
 def csv_bytes(df: pd.DataFrame) -> bytes:
     return df.to_csv(index=False).encode("utf-8")
+
+
+def build_live_escalation_snapshot(city: str, forecast_df: pd.DataFrame) -> dict:
+    if forecast_df.empty:
+        return {
+            "escalation_probability_72h": None,
+            "escalation_flag_72h": None,
+            "escalation_label_72h": None,
+        }
+
+    first_row = forecast_df.sort_values("date").head(1).copy()
+    if "city" not in first_row.columns:
+        first_row["city"] = city
+
+    pred_df = predict_escalation_from_features(first_row)
+    row = pred_df.iloc[0]
+
+    return {
+        "escalation_probability_72h": float(row["escalation_probability_72h"]),
+        "escalation_flag_72h": int(row["escalation_flag_72h"]),
+        "escalation_label_72h": str(row["escalation_label_72h"]),
+    }
 
 
 def build_timeline_figure(df: pd.DataFrame, city_name: str) -> go.Figure:
@@ -321,12 +370,7 @@ def build_timeline_figure(df: pd.DataFrame, city_name: str) -> go.Figure:
         bargap=0.18,
     )
 
-    fig.update_xaxes(
-        title_text="Datum",
-        showgrid=False,
-        tickangle=0,
-    )
-
+    fig.update_xaxes(title_text="Datum", showgrid=False, tickangle=0)
     fig.update_yaxes(
         title_text="Projected Heat Risk Score",
         range=[0, 100],
@@ -344,7 +388,8 @@ st.markdown(
         <div class="page-hero-title">🚨 Action Center / Alert Center</div>
         <div class="page-hero-subtitle">
             Operativni command center za toplinski rizik. Ova stranica spaja forecast,
-            readiness status, sektor-specifične preporuke, event risk procjenu i export-ready briefove.
+            readiness status, sektor-specifične preporuke, event risk procjenu,
+            impact-based forecasting, vulnerability layer, XAI i export-ready briefove.
         </div>
     </div>
     """,
@@ -398,11 +443,127 @@ except Exception as exc:
     st.stop()
 
 active_df = scenario_df if scenario_enabled else baseline_df
+
 summary = build_city_readiness_summary(selected_city, active_df)
 actions = build_sector_actions(summary["next_7d_peak_level"])
-escalation = build_escalation_plan(summary["next_7d_peak_level"])
+escalation_plan = build_escalation_plan(summary["next_7d_peak_level"])
+live_escalation = build_live_escalation_snapshot(selected_city, active_df)
 
-executive_brief = build_executive_brief(selected_city, active_df, scenario_used=scenario_enabled)
+xai_input_row = active_df.sort_values("date").head(1).copy()
+if "city" not in xai_input_row.columns:
+    xai_input_row["city"] = selected_city
+xai_summary = explain_escalation_row(xai_input_row)
+
+vulnerability_snapshot = get_city_vulnerability_snapshot(selected_city)
+vulnerability_drivers = identify_vulnerability_drivers(vulnerability_snapshot)
+vulnerability_recommendations = build_vulnerability_recommendations(vulnerability_snapshot)
+
+impact_adjusted_priority = build_impact_adjusted_priority(
+    next_7d_peak_score=float(summary["next_7d_peak_score"]),
+    escalation_probability_72h=live_escalation["escalation_probability_72h"],
+    vulnerability_index=float(vulnerability_snapshot["vulnerability_index"]),
+)
+
+recommended_resources_df = recommend_resources(
+    city=selected_city,
+    escalation_label=live_escalation["escalation_label_72h"] or "Stable",
+    top_n=3,
+)
+
+impact_band = impact_band_from_peak(
+    summary["next_7d_peak_level"],
+    live_escalation["escalation_label_72h"],
+)
+
+primary_impacts = identify_primary_impacts(
+    summary,
+    live_escalation["escalation_label_72h"],
+)
+
+priority_groups = identify_priority_groups(
+    summary,
+    live_escalation["escalation_label_72h"],
+)
+
+dispatch_resources_df = recommend_dispatch_resources(
+    city=selected_city,
+    escalation_label=live_escalation["escalation_label_72h"] or "Stable",
+    priority_groups=priority_groups,
+    top_n=5,
+)
+
+top_dispatch_summary = build_top_dispatch_summary(dispatch_resources_df)
+
+operational_triggers = build_operational_triggers(
+    summary,
+    live_escalation["escalation_label_72h"],
+)
+
+civil_protection_brief = build_civil_protection_executive_brief(
+    city=selected_city,
+    summary=summary,
+    escalation_probability=live_escalation["escalation_probability_72h"],
+    escalation_label=live_escalation["escalation_label_72h"],
+    recommended_resources=recommended_resources_df,
+    scenario_enabled=scenario_enabled,
+    temperature_delta=temperature_delta,
+    humidity_delta=humidity_delta,
+    wind_delta=wind_delta,
+)
+
+civil_protection_brief = (
+    civil_protection_brief
+    + "\n\nVULNERABILITY LAYER\n"
+    + f"- Vulnerability index: {vulnerability_snapshot['vulnerability_index']:.2f}\n"
+    + f"- Vulnerability band: {vulnerability_snapshot['vulnerability_band']}\n"
+    + "- Main drivers:\n"
+    + "\n".join(f"  - {item}" for item in vulnerability_drivers)
+    + "\n- Vulnerability-sensitive recommendations:\n"
+    + "\n".join(f"  - {item}" for item in vulnerability_recommendations)
+)
+
+positive_driver_lines = (
+    "\n".join(
+        f"  - {item['feature']} ({item['contribution']})"
+        for item in xai_summary["top_positive_drivers"]
+    )
+    if xai_summary["top_positive_drivers"]
+    else "  - No dominant positive drivers detected"
+)
+
+protective_driver_lines = (
+    "\n".join(
+        f"  - {item['feature']} ({item['contribution']})"
+        for item in xai_summary["top_protective_drivers"]
+    )
+    if xai_summary["top_protective_drivers"]
+    else "  - No dominant protective drivers detected"
+)
+
+civil_protection_brief = (
+    civil_protection_brief
+    + "\n\nXAI / EXPLAINABLE AI LAYER\n"
+    + f"- Method: {xai_summary['method']}\n"
+    + f"- Probability: {xai_summary['probability']:.2f}\n"
+    + f"- Label: {xai_summary['label']}\n"
+    + "- Top positive drivers:\n"
+    + positive_driver_lines
+    + "\n- Top protective drivers:\n"
+    + protective_driver_lines
+    + f"\n- Summary: {xai_summary['explanation_text']}"
+)
+
+civil_protection_brief = (
+    civil_protection_brief
+    + "\n\nOPERATIONAL RESOURCE ROUTING\n"
+    + f"- {top_dispatch_summary}\n"
+)
+
+executive_brief = build_executive_brief(
+    selected_city,
+    active_df,
+    scenario_used=scenario_enabled,
+)
 scenario_brief = build_scenario_comparison_brief(
     selected_city,
     baseline_df,
@@ -488,11 +649,172 @@ with tabs[0]:
     st.markdown("### Alert escalation logic")
     esc1, esc2, esc3 = st.columns(3)
     with esc1:
-        render_list_card("Što napraviti odmah", escalation["immediately"])
+        render_list_card("Što napraviti odmah", escalation_plan["immediately"])
     with esc2:
-        render_list_card("Što napraviti u 24h", escalation["within_24h"])
+        render_list_card("Što napraviti u 24h", escalation_plan["within_24h"])
     with esc3:
-        render_list_card("Što napraviti u 72h", escalation["within_72h"])
+        render_list_card("Što napraviti u 72h", escalation_plan["within_72h"])
+
+    st.markdown("### Impact-based forecasting")
+    i1, i2, i3 = st.columns(3)
+    with i1:
+        metric_card("Impact band", impact_band, "Operational severity")
+    with i2:
+        metric_card(
+            "72h escalation",
+            live_escalation["escalation_label_72h"],
+            f"{live_escalation['escalation_probability_72h']:.2f}"
+            if live_escalation["escalation_probability_72h"] is not None
+            else "N/A",
+        )
+    with i3:
+        metric_card("Priority groups", str(len(priority_groups)), "Groups requiring attention")
+
+    p1, p2, p3 = st.columns(3)
+    with p1:
+        render_list_card("Primary impacts", primary_impacts)
+    with p2:
+        render_list_card("Priority groups", priority_groups)
+    with p3:
+        render_list_card("Operational triggers", operational_triggers)
+
+    st.markdown("### Socio-economic vulnerability layer")
+    vv1, vv2, vv3 = st.columns(3)
+    with vv1:
+        metric_card(
+            "Vulnerability index",
+            f"{vulnerability_snapshot['vulnerability_index']:.1f}",
+            "City-level profile",
+        )
+    with vv2:
+        metric_card(
+            "Vulnerability band",
+            vulnerability_snapshot["vulnerability_band"],
+            "Human-impact context",
+        )
+    with vv3:
+        metric_card(
+            "Impact-adjusted priority",
+            f"{impact_adjusted_priority:.1f}",
+            "Heat + escalation + vulnerability",
+        )
+
+    vd1, vd2 = st.columns(2)
+    with vd1:
+        render_list_card("Main vulnerability drivers", vulnerability_drivers)
+    with vd2:
+        render_list_card("Vulnerability-sensitive recommendations", vulnerability_recommendations)
+
+    st.markdown("### Explainable AI for v3 escalation signal")
+    x1, x2, x3 = st.columns(3)
+    with x1:
+        metric_card(
+            "XAI method",
+            str(xai_summary["method"]),
+            "Local explanation engine",
+        )
+    with x2:
+        metric_card(
+            "V3 probability",
+            f"{xai_summary['probability']:.2f}" if xai_summary["probability"] is not None else "N/A",
+            "72h escalation probability",
+        )
+    with x3:
+        metric_card(
+            "V3 label",
+            str(xai_summary["label"]),
+            "Model signal",
+        )
+
+    xx1, xx2 = st.columns(2)
+    with xx1:
+        render_list_card(
+            "Top positive drivers",
+            driver_items(xai_summary["top_positive_drivers"]),
+        )
+    with xx2:
+        render_list_card(
+            "Top protective drivers",
+            driver_items(xai_summary["top_protective_drivers"]),
+        )
+
+    st.info(xai_summary["explanation_text"])
+
+    st.markdown("### Operational resource routing")
+
+    if dispatch_resources_df.empty:
+        st.info("Nema dostupnih dispatch resource preporuka za ovaj grad.")
+    else:
+        top_dispatch_row = dispatch_resources_df.iloc[0]
+
+        dr1, dr2, dr3 = st.columns(3)
+        with dr1:
+            metric_card(
+                "Top dispatch resource",
+                str(top_dispatch_row["resource_name"]),
+                str(top_dispatch_row["resource_type"]),
+            )
+        with dr2:
+            metric_card(
+                "Dispatch score",
+                f"{top_dispatch_row['dispatch_score']:.1f}",
+                "Operational routing score",
+            )
+        with dr3:
+            distance_sub = (
+                f"{top_dispatch_row['nearest_critical_distance_km']:.2f} km"
+                if pd.notna(top_dispatch_row["nearest_critical_distance_km"])
+                else "N/A"
+            )
+            metric_card(
+                "Nearest critical point",
+                str(top_dispatch_row["nearest_critical_point"]),
+                distance_sub,
+            )
+
+        st.info(top_dispatch_summary)
+
+        routing_display_df = dispatch_resources_df[
+            [
+                "dispatch_rank",
+                "resource_name",
+                "resource_type",
+                "dispatch_score",
+                "readiness_score",
+                "capacity_availability_score",
+                "proximity_score",
+                "opening_score",
+                "trust_score",
+                "priority_fit_score",
+                "nearest_critical_point",
+                "nearest_critical_distance_km",
+                "dispatch_reason",
+            ]
+        ].copy()
+
+        st.dataframe(routing_display_df, use_container_width=True, hide_index=True)
+
+    st.markdown("### Recommended resources for current escalation signal")
+    if recommended_resources_df.empty:
+        st.info("Nema preporučenih resource točaka za ovaj grad.")
+    else:
+        resource_columns = st.columns(min(3, len(recommended_resources_df)))
+        for i, (_, row) in enumerate(recommended_resources_df.iterrows()):
+            with resource_columns[i]:
+                render_text_card(
+                    row.get("resource_name", "Unknown"),
+                    f"""
+                    <b>Tip:</b> {row.get('resource_type', 'N/A')}<br>
+                    <b>Adresa:</b> {row.get('address', 'N/A')}<br>
+                    <b>Radno vrijeme:</b> {row.get('hours_weekday', 'N/A')}<br>
+                    <b>Verified:</b> {row.get('verified_status', 'N/A')}<br>
+                    <b>Water:</b> {row.get('water_available', 'N/A')}<br>
+                    <b>Indoor cooling:</b> {row.get('indoor_cooling', 'N/A')}
+                    """,
+                )
+
+    st.markdown("### Executive summary for civil protection")
+    st.code(civil_protection_brief, language="text")
 
     st.markdown("### Operativni pregled po danima")
     timeline_df = active_df[
@@ -506,12 +828,15 @@ with tabs[0]:
             "apparent_temp_max",
         ]
     ].copy()
+    timeline_df["vulnerability_index"] = vulnerability_snapshot["vulnerability_index"]
+    timeline_df["vulnerability_band"] = vulnerability_snapshot["vulnerability_band"]
+    timeline_df["impact_adjusted_priority"] = impact_adjusted_priority
     day_table = to_display_date(timeline_df)
     st.dataframe(day_table, use_container_width=True, hide_index=True)
 
     st.markdown('<div class="report-box">', unsafe_allow_html=True)
     st.markdown("### Report export")
-    d1, d2, d3 = st.columns(3)
+    d1, d2, d3, d4 = st.columns(4)
     with d1:
         st.download_button(
             "⬇ Download executive brief (.txt)",
@@ -538,6 +863,15 @@ with tabs[0]:
             mime="text/plain",
             use_container_width=True,
             key=f"dl_scenario_action_{selected_city}",
+        )
+    with d4:
+        st.download_button(
+            "⬇ Download civil protection brief (.txt)",
+            data=civil_protection_brief.encode("utf-8"),
+            file_name=f"heatsafe_hr_civil_protection_brief_{selected_city}.txt",
+            mime="text/plain",
+            use_container_width=True,
+            key=f"dl_civil_protection_brief_{selected_city}",
         )
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -575,7 +909,13 @@ with tabs[1]:
             index=2,
         )
     with e4:
-        attendees = st.number_input("Broj sudionika / gostiju", min_value=1, max_value=50000, value=250, step=50)
+        attendees = st.number_input(
+            "Broj sudionika / gostiju",
+            min_value=1,
+            max_value=50000,
+            value=250,
+            step=50,
+        )
 
     vulnerable_groups = st.toggle("Uključene osjetljive skupine", value=True)
 
@@ -680,9 +1020,12 @@ with tabs[2]:
     st.markdown("#### Scenario comparison brief")
     st.code(scenario_brief, language="text")
 
+    st.markdown("#### Civil protection executive summary")
+    st.code(civil_protection_brief, language="text")
+
     st.markdown('<div class="report-box">', unsafe_allow_html=True)
     st.markdown("### Brief export")
-    c1, c2 = st.columns(2)
+    c1, c2, c3 = st.columns(3)
     with c1:
         st.download_button(
             "⬇ Download executive brief (.txt)",
@@ -701,6 +1044,15 @@ with tabs[2]:
             use_container_width=True,
             key=f"dl_scenario_summary_{selected_city}",
         )
+    with c3:
+        st.download_button(
+            "⬇ Download civil protection brief (.txt)",
+            data=civil_protection_brief.encode("utf-8"),
+            file_name=f"heatsafe_hr_civil_protection_brief_{selected_city}.txt",
+            mime="text/plain",
+            use_container_width=True,
+            key=f"dl_civil_summary_{selected_city}",
+        )
     st.markdown("</div>", unsafe_allow_html=True)
 
     ex1, ex2 = st.columns(2)
@@ -709,7 +1061,11 @@ with tabs[2]:
         render_text_card(
             "Peak executive signal",
             f"""
-            <div style="margin-bottom:0.6rem;">{f'<span class="status-pill" style="background:{risk_to_color(summary["next_7d_peak_level"])};">{summary["next_7d_peak_level"]}</span>'}</div>
+            <div style="margin-bottom:0.6rem;">
+                <span class="status-pill" style="background:{risk_to_color(summary["next_7d_peak_level"])};">
+                    {summary["next_7d_peak_level"]}
+                </span>
+            </div>
             <b>Peak date:</b> {summary['next_7d_peak_date'].strftime('%d.%m.%Y.')}<br>
             <b>Peak score:</b> {summary['next_7d_peak_score']:.1f}<br>
             <b>Next 24h ML confidence:</b> {summary['next_24h_confidence']:.2f}
@@ -720,7 +1076,11 @@ with tabs[2]:
         render_text_card(
             "Readiness summary",
             f"""
-            <div style="margin-bottom:0.6rem;">{f'<span class="status-pill" style="background:{readiness_to_color(summary["readiness_status"])};">{summary["readiness_status"]}</span>'}</div>
+            <div style="margin-bottom:0.6rem;">
+                <span class="status-pill" style="background:{readiness_to_color(summary["readiness_status"])};">
+                    {summary["readiness_status"]}
+                </span>
+            </div>
             <b>Next 24h risk:</b> {summary['next_24h_level']}<br>
             <b>Next 72h peak:</b> {summary['next_72h_peak_level']}<br>
             <b>High-risk days (7d):</b> {summary['high_risk_days']}
@@ -730,7 +1090,8 @@ with tabs[2]:
     st.success(
         """
         HeatSafe HR ovdje radi kao alat za odlučivanje:
-        ne prikazuje samo prognozu, nego daje status pripravnosti, preporuke i operativni brief
+        ne prikazuje samo prognozu, nego daje status pripravnosti, preporuke,
+        impact-based forecasting, vulnerability layer, XAI i operativni brief
         za grad, javne službe i turistički sektor.
         """
     )

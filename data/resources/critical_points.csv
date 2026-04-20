@@ -1,0 +1,36 @@
+﻿city,point_name,point_type,lat,lon
+Šibenik,Baldekin / dense residential zone,dense_residential_zone,43.7302519,15.9004649
+Šibenik,Cvjetni dom / elderly care zone,elderly_care_zone,43.7240447,15.9084972
+Šibenik,Hospital zone,health_zone,43.7275,15.9058
+Šibenik,Historic center / tourism zone,tourism_zone,43.735,15.8952
+Šibenik,Bus station / transport hub,transport_hub,43.73225,15.89341
+Zadar,Voštarnica / dense residential zone,dense_residential_zone,44.1182714,15.2336734
+Zadar,Dom za starije / elderly care zone,elderly_care_zone,44.12388,15.22454
+Zadar,Hospital zone,health_zone,44.1081,15.2427
+Zadar,Historic center / tourism zone,tourism_zone,44.1194,15.2314
+Zadar,Bus station / transport hub,transport_hub,44.1063156,15.2413005
+Split,Gripe / dense residential zone,dense_residential_zone,43.5090278,16.4523611
+Split,Dom Zenta / elderly care zone,elderly_care_zone,43.5017451,16.4588265
+Split,Hospital zone,health_zone,43.5036,16.462
+Split,Historic center / tourism zone,tourism_zone,43.5081,16.4402
+Split,Main bus station / transport hub,transport_hub,43.5032501,16.4432296
+Dubrovnik,Lapad / dense residential zone,dense_residential_zone,42.6522474,18.0891739
+Dubrovnik,Dom za starije / elderly care zone,elderly_care_zone,42.64364,18.10145
+Dubrovnik,Hospital zone,health_zone,42.6507,18.0944
+Dubrovnik,Historic center / tourism zone,tourism_zone,42.6415,18.1091
+Dubrovnik,Main bus station / transport hub,transport_hub,42.662942,18.083464
+Rijeka,Zamet / dense residential zone,dense_residential_zone,45.344304,14.383543
+Rijeka,Kantrida / elderly care zone,elderly_care_zone,45.344015,14.36415
+Rijeka,Hospital zone,health_zone,45.339,14.427
+Rijeka,City center / tourism zone,tourism_zone,45.3271,14.4422
+Rijeka,Bus station / transport hub,transport_hub,45.327998,14.436948
+Osijek,Jug 2 / dense residential zone,dense_residential_zone,45.54472,18.69417
+Osijek,Drinska / elderly care zone,elderly_care_zone,45.546876,18.683429
+Osijek,Hospital zone,health_zone,45.5602,18.7046
+Osijek,City center / tourism zone,tourism_zone,45.5549,18.6955
+Osijek,Bus station / transport hub,transport_hub,45.55326,18.67925
+Zagreb,Novi Zagreb / dense residential zone,dense_residential_zone,45.771664,15.942831
+Zagreb,Peščenica / elderly care zone,elderly_care_zone,45.80414,16.01601
+Zagreb,Hospital zone,health_zone,45.8048,15.9917
+Zagreb,City center / tourism zone,tourism_zone,45.815,15.9819
+Zagreb,Main bus station / transport hub,transport_hub,45.803824,15.993345

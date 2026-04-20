@@ -3,14 +3,13 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import pandas as pd
-import plotly.express as px
-import streamlit as st
-from src.escalation_engine import predict_escalation_from_features
-
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
+
+import pandas as pd
+import plotly.express as px
+import streamlit as st
 
 from src.alert_engine import (
     ALERT_COLOR_MAP,
@@ -21,8 +20,10 @@ from src.alert_engine import (
     get_alert_level,
     load_alert_history,
 )
+from src.communication_engine import build_alert_communication_package
 from src.config import DEFAULT_CITY
 from src.decision_engine import build_city_readiness_summary
+from src.escalation_engine import predict_escalation_from_features
 from src.forecast_engine import make_ml_forecast
 
 st.set_page_config(page_title="Alert Center", page_icon="🚨", layout="wide")
@@ -47,10 +48,6 @@ ESCALATION_COLOR_MAP = {
 
 
 def build_live_escalation_snapshot(city: str, forecast_df: pd.DataFrame) -> dict:
-    """
-    Prvi forecast dan koristimo kao live feature snapshot za v3.
-    Model će uzeti dostupne featuree, a nedostajuće imputirati.
-    """
     if forecast_df.empty:
         return {
             "escalation_probability_72h": None,
@@ -71,6 +68,7 @@ def build_live_escalation_snapshot(city: str, forecast_df: pd.DataFrame) -> dict
         "escalation_flag_72h": int(row["escalation_flag_72h"]),
         "escalation_label_72h": str(row["escalation_label_72h"]),
     }
+
 
 st.markdown(
     """
@@ -190,6 +188,7 @@ st.markdown(
         gap: 1.2rem;
         margin-top: 0.8rem;
         margin-bottom: 0.8rem;
+        flex-wrap: wrap;
     }
 
     button[data-baseweb="tab"] {
@@ -235,13 +234,15 @@ def load_city_snapshot(city: str, temperature_delta: float, humidity_delta: floa
     summary = build_city_readiness_summary(city, forecast_df)
     return forecast_df, summary
 
+
 st.markdown(
     """
     <div class="page-hero">
         <div class="page-hero-title">🚨 Alert Center</div>
         <div class="page-hero-subtitle">
             Operator-focused modul za izdavanje i praćenje alerta. Stranica dodaje severity rules,
-            alert log, operator summary i exportable alert packages za više gradova odjednom.
+            alert log, operator summary, exportable alert packages i smart communication layer
+            za više gradova odjednom.
         </div>
     </div>
     """,
@@ -325,7 +326,14 @@ with m4:
 with m5:
     metric_card("Top operator priority", str(top_city), "Most urgent city")
 
-tabs = st.tabs(["Current snapshot", "Alert history", "Alert packages"])
+tabs = st.tabs(
+    [
+        "Current snapshot",
+        "Alert history",
+        "Alert packages",
+        "Communication layer",
+    ]
+)
 
 with tabs[0]:
     st.markdown("### Current operator snapshot")
@@ -428,13 +436,17 @@ with tabs[2]:
         "Odaberi grad za alert package",
         CITIES,
         index=CITIES.index(default_city) if default_city in CITIES else 0,
+        key="package_city_alert_center",
     )
     st.session_state.selected_city = package_city
 
     package_text = packages[package_city]
     selected_row = snapshot_df[snapshot_df["city"] == package_city].iloc[0]
 
-    badge_html = pill(selected_row["alert_severity"], ALERT_COLOR_MAP.get(selected_row["alert_severity"], "#64748b"))
+    badge_html = pill(
+        selected_row["alert_severity"],
+        ALERT_COLOR_MAP.get(selected_row["alert_severity"], "#64748b"),
+    )
     st.markdown(badge_html, unsafe_allow_html=True)
 
     if pd.notna(selected_row.get("escalation_label_72h")):
@@ -465,3 +477,93 @@ with tabs[2]:
             use_container_width=True,
             key=f"dl_operator_row_{package_city}",
         )
+
+with tabs[3]:
+    st.markdown("### Smart Alerting communication layer")
+
+    if snapshot_df.empty:
+        st.info("Nema alert podataka za generiranje komunikacijskih poruka.")
+    else:
+        comm_default_city = st.session_state.get("selected_city", DEFAULT_CITY)
+        selected_comm_city = st.selectbox(
+            "Odaberi grad za komunikacijski paket",
+            CITIES,
+            index=CITIES.index(comm_default_city) if comm_default_city in CITIES else 0,
+            key="selected_comm_city_alert_center",
+        )
+
+        selected_alert_row = snapshot_df[snapshot_df["city"] == selected_comm_city].iloc[0]
+        comm_package = build_alert_communication_package(selected_alert_row.to_dict())
+
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            metric_card("Alert severity", selected_alert_row["alert_severity"], "Public communication level")
+        with c2:
+            metric_card("Readiness", selected_alert_row["readiness"], "Operational posture")
+        with c3:
+            metric_card(
+                "72h escalation",
+                selected_alert_row["escalation_label_72h"],
+                f"{selected_alert_row['escalation_probability_72h']:.2f}",
+            )
+
+        st.markdown("#### Public advisory (HR)")
+        st.code(comm_package["public_advisory_hr"], language="text")
+
+        st.markdown("#### Tourist advisory (EN)")
+        st.code(comm_package["tourist_advisory_en"], language="text")
+
+        st.markdown("#### Media brief")
+        st.code(comm_package["media_brief"], language="text")
+
+        st.markdown("#### Operator SMS / dispatch summary")
+        st.code(comm_package["operator_sms"], language="text")
+
+        st.markdown("#### Social post (HR)")
+        st.code(comm_package["social_post_hr"], language="text")
+
+        st.markdown("#### Social post (EN)")
+        st.code(comm_package["social_post_en"], language="text")
+
+        st.markdown("### Download communication package")
+        d1, d2, d3 = st.columns(3)
+
+        with d1:
+            st.download_button(
+                "⬇ Download HR public advisory (.txt)",
+                data=comm_package["public_advisory_hr"].encode("utf-8"),
+                file_name=f"heatsafe_hr_public_advisory_{selected_comm_city}.txt",
+                mime="text/plain",
+                use_container_width=True,
+                key=f"dl_public_hr_{selected_comm_city}",
+            )
+
+        with d2:
+            st.download_button(
+                "⬇ Download EN tourist advisory (.txt)",
+                data=comm_package["tourist_advisory_en"].encode("utf-8"),
+                file_name=f"heatsafe_hr_tourist_advisory_{selected_comm_city}.txt",
+                mime="text/plain",
+                use_container_width=True,
+                key=f"dl_tourist_en_{selected_comm_city}",
+            )
+
+        with d3:
+            package_text = (
+                "HEATSAFE HR — COMMUNICATION PACKAGE\n\n"
+                f"{comm_package['public_advisory_hr']}\n\n"
+                f"{comm_package['tourist_advisory_en']}\n\n"
+                f"{comm_package['media_brief']}\n\n"
+                f"{comm_package['operator_sms']}\n\n"
+                f"{comm_package['social_post_hr']}\n\n"
+                f"{comm_package['social_post_en']}"
+            )
+
+            st.download_button(
+                "⬇ Download full communication package (.txt)",
+                data=package_text.encode("utf-8"),
+                file_name=f"heatsafe_hr_communication_package_{selected_comm_city}.txt",
+                mime="text/plain",
+                use_container_width=True,
+                key=f"dl_comm_package_{selected_comm_city}",
+            )
