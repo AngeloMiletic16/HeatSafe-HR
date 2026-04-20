@@ -15,7 +15,7 @@ MODEL_PATH = PROJECT_ROOT / "data" / "models" / "best_escalation_72h_model.jobli
 FEATURE_DATA_PATH = PROJECT_ROOT / "data" / "processed" / "all_cities_features.csv"
 
 STABLE_THRESHOLD = 0.30
-LIKELY_THRESHOLD = 0.60
+LIKELY_THRESHOLD = 0.55
 
 
 @lru_cache(maxsize=1)

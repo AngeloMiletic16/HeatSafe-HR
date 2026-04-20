@@ -18,6 +18,7 @@ from src.decision_engine import build_city_readiness_summary
 from src.escalation_engine import predict_escalation_from_features
 from src.forecast_engine import make_ml_forecast
 from src.update_live_data import load_refresh_status, refresh_operational_data
+from src.resource_recommender import recommend_resources
 
 st.set_page_config(
     page_title="HeatSafe HR",
@@ -493,6 +494,11 @@ else:
     st.sidebar.caption("Zadnji refresh: još nije pokrenut")
 
 selected_city_snapshot = ranked_cities_df[ranked_cities_df["city"] == selected_city].iloc[0]
+recommended_resources_df = recommend_resources(
+    city=selected_city,
+    escalation_label=selected_city_snapshot["escalation_label_72h"],
+    top_n=3,
+)
 
 metrics_v1_best = metrics_v1.get(metrics_v1.get("best_model", ""), {})
 metrics_v2_best = metrics_v2.get(metrics_v2.get("best_model", ""), {})
@@ -693,6 +699,30 @@ with esc3:
     )
 
 st.divider()
+
+st.markdown('<div class="section-title">Recommended resources for current escalation signal</div>', unsafe_allow_html=True)
+
+if recommended_resources_df.empty:
+    st.info("Nema preporučenih resource točaka za ovaj grad.")
+else:
+    rcols = st.columns(min(3, len(recommended_resources_df)))
+
+    for i, (_, row) in enumerate(recommended_resources_df.iterrows()):
+        with rcols[i]:
+            st.markdown(
+                f"""
+                <div class="card">
+                    <div class="mini-title">{row.get('resource_type', 'Resource')}</div>
+                    <div class="big-city">{row.get('resource_name', 'Unknown')}</div>
+                    <div class="small-muted"><b>Adresa:</b> {row.get('address', 'N/A')}</div>
+                    <div class="small-muted"><b>Radno vrijeme:</b> {row.get('hours_weekday', 'N/A')}</div>
+                    <div class="small-muted"><b>Verified:</b> {row.get('verified_status', 'N/A')}</div>
+                    <div class="small-muted"><b>Water:</b> {row.get('water_available', 'N/A')}</div>
+                    <div class="small-muted"><b>Indoor cooling:</b> {row.get('indoor_cooling', 'N/A')}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
 # ---------- Top cities ----------
 st.markdown('<div class="section-title">Top city risk snapshot</div>', unsafe_allow_html=True)

@@ -135,11 +135,11 @@ def get_alert_level(
             alert["alert_severity"] = "Heat Warning"
             alert["alert_issued"] = True
 
-        elif escalation_probability >= 0.60 and base_order < ALERT_SEVERITY_ORDER["Heat Advisory"]:
+        elif escalation_probability >= 0.55 and base_order < ALERT_SEVERITY_ORDER["Heat Advisory"]:
             alert["alert_severity"] = "Heat Advisory"
             alert["alert_issued"] = True
 
-        if escalation_probability >= 0.60:
+        if escalation_probability >= 0.55:
             extra_audience = [
                 "City operations",
                 "Public services",

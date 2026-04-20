@@ -14,6 +14,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from src.alert_engine import csv_bytes, get_alert_level
 from src.config import DEFAULT_CITY
 from src.decision_engine import build_escalation_plan, build_sector_actions
+from src.escalation_engine import get_city_escalation_summary_by_date
 
 st.set_page_config(page_title="Historical Replay", page_icon="⏪", layout="wide")
 
@@ -283,7 +284,17 @@ def build_replay_log(city_df: pd.DataFrame, issue_period_df: pd.DataFrame) -> pd
             continue
 
         summary = build_replay_summary(window_df, str(issue_row["city"]))
-        alert = get_alert_level(summary)
+
+        escalation_summary = get_city_escalation_summary_by_date(
+            str(issue_row["city"]),
+            issue_date,
+        )
+
+        alert = get_alert_level(
+            summary,
+            escalation_probability=escalation_summary["escalation_probability_72h"],
+            escalation_label=escalation_summary["escalation_label_72h"],
+        )
 
         rows.append(
             {
@@ -303,6 +314,9 @@ def build_replay_log(city_df: pd.DataFrame, issue_period_df: pd.DataFrame) -> pd
                 "target_audience": ", ".join(alert["target_audience"]),
                 "operator_summary": alert["operator_summary"],
                 "actions_now": " | ".join(alert["immediate_actions"]),
+                "escalation_probability_72h": round(float(escalation_summary["escalation_probability_72h"]), 4),
+                "escalation_label_72h": escalation_summary["escalation_label_72h"],
+                "escalation_operator_message": escalation_summary["operator_message"],
             }
         )
 
@@ -514,6 +528,21 @@ with tabs[1]:
         metric_card("Next 7d peak", selected_replay["next_7d_peak_level"], f"{selected_replay['next_7d_peak_score']:.1f}")
     with c4:
         metric_card("Readiness", selected_replay["readiness_status"], selected_replay["alert_severity"])
+    c5, c6 = st.columns(2)
+    with c5:
+        metric_card(
+            "72h escalation probability",
+            f"{selected_replay['escalation_probability_72h']:.2f}",
+            "V3 early-warning",
+        )
+    with c6:
+        metric_card(
+            "Escalation signal",
+            selected_replay["escalation_label_72h"],
+            "Historical V3 signal",
+        )
+
+    st.info(selected_replay["escalation_operator_message"])
 
     left, right = st.columns(2)
     with left:
@@ -573,6 +602,8 @@ with tabs[2]:
             "alert_issued",
             "target_audience",
             "operator_summary",
+            "escalation_probability_72h",
+            "escalation_label_72h",
         ]
     ].copy()
 
