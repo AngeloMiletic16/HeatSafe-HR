@@ -32,7 +32,12 @@ from src.impact_engine import (
     identify_priority_groups,
     impact_band_from_peak,
 )
+from src.pdf_export_engine import generate_daily_briefing_pdf
 from src.resource_recommender import recommend_resources
+from src.resource_routing_engine import (
+    build_top_dispatch_summary,
+    recommend_dispatch_resources,
+)
 from src.vulnerability_engine import (
     build_impact_adjusted_priority,
     build_vulnerability_recommendations,
@@ -40,10 +45,6 @@ from src.vulnerability_engine import (
     identify_vulnerability_drivers,
 )
 from src.xai_engine import explain_escalation_row
-from src.resource_routing_engine import (
-    build_top_dispatch_summary,
-    recommend_dispatch_resources,
-)
 
 RISK_COLOR_MAP = {
     "Nizak": "#2E8B57",
@@ -267,10 +268,7 @@ def render_text_card(title: str, body_html: str) -> None:
 def driver_items(driver_list: list[dict]) -> list[str]:
     if not driver_list:
         return ["Nema dostupnih drivera za ovaj signal."]
-    return [
-        f"{item['feature']} (contribution: {item['contribution']})"
-        for item in driver_list
-    ]
+    return [f"{item['feature']} (contribution: {item['contribution']})" for item in driver_list]
 
 
 def to_display_date(df: pd.DataFrame, column: str = "date") -> pd.DataFrame:
@@ -573,6 +571,60 @@ scenario_brief = build_scenario_comparison_brief(
     wind_delta=wind_delta,
 )
 
+pdf_reliability_snapshot = {
+    "v1_signal": str(
+        active_df.sort_values("date").iloc[0].get(
+            "ml_predicted_label",
+            active_df.sort_values("date").iloc[0].get("heuristic_risk_level", "N/A"),
+        )
+    ),
+    "v2_signal": "N/A",
+    "v3_signal": live_escalation["escalation_label_72h"],
+    "confidence_level": "N/A",
+    "reliability_score": 0.0,
+    "operator_review_required": False,
+    "uncertainty_warning": "Action Center PDF export mode.",
+    "consensus_status": "Action Center mode",
+}
+
+public_alert_summary = (
+    f"{selected_city}: readiness status is {summary['readiness_status']}. "
+    f"Next 7d peak is {summary['next_7d_peak_level']} "
+    f"({summary['next_7d_peak_score']:.1f}) on "
+    f"{summary['next_7d_peak_date'].strftime('%d.%m.%Y.')}. "
+    f"72h escalation signal is {live_escalation['escalation_label_72h']} "
+    f"with probability {live_escalation['escalation_probability_72h']:.2f}."
+)
+
+scenario_meta = (
+    {
+        "temperature_delta": temperature_delta,
+        "humidity_delta": humidity_delta,
+        "wind_delta": wind_delta,
+    }
+    if scenario_enabled
+    else None
+)
+
+daily_briefing_pdf_bytes = generate_daily_briefing_pdf(
+    city=selected_city,
+    summary=summary,
+    reliability_snapshot=pdf_reliability_snapshot,
+    vulnerability_snapshot=vulnerability_snapshot,
+    impact_adjusted_priority=impact_adjusted_priority,
+    impact_band=impact_band,
+    priority_groups=priority_groups,
+    primary_impacts=primary_impacts,
+    operational_triggers=operational_triggers,
+    sector_actions=actions,
+    xai_summary=xai_summary,
+    top_dispatch_summary=top_dispatch_summary,
+    public_alert_summary=public_alert_summary,
+    timeline_df=active_df,
+    scenario_enabled=scenario_enabled,
+    scenario_meta=scenario_meta,
+)
+
 st.markdown("## City Readiness Status")
 badge(summary["readiness_status"], readiness_to_color(summary["readiness_status"]))
 
@@ -708,11 +760,7 @@ with tabs[0]:
     st.markdown("### Explainable AI for v3 escalation signal")
     x1, x2, x3 = st.columns(3)
     with x1:
-        metric_card(
-            "XAI method",
-            str(xai_summary["method"]),
-            "Local explanation engine",
-        )
+        metric_card("XAI method", str(xai_summary["method"]), "Local explanation engine")
     with x2:
         metric_card(
             "V3 probability",
@@ -720,23 +768,13 @@ with tabs[0]:
             "72h escalation probability",
         )
     with x3:
-        metric_card(
-            "V3 label",
-            str(xai_summary["label"]),
-            "Model signal",
-        )
+        metric_card("V3 label", str(xai_summary["label"]), "Model signal")
 
     xx1, xx2 = st.columns(2)
     with xx1:
-        render_list_card(
-            "Top positive drivers",
-            driver_items(xai_summary["top_positive_drivers"]),
-        )
+        render_list_card("Top positive drivers", driver_items(xai_summary["top_positive_drivers"]))
     with xx2:
-        render_list_card(
-            "Top protective drivers",
-            driver_items(xai_summary["top_protective_drivers"]),
-        )
+        render_list_card("Top protective drivers", driver_items(xai_summary["top_protective_drivers"]))
 
     st.info(xai_summary["explanation_text"])
 
@@ -836,7 +874,7 @@ with tabs[0]:
 
     st.markdown('<div class="report-box">', unsafe_allow_html=True)
     st.markdown("### Report export")
-    d1, d2, d3, d4 = st.columns(4)
+    d1, d2, d3, d4, d5 = st.columns(5)
     with d1:
         st.download_button(
             "⬇ Download executive brief (.txt)",
@@ -872,6 +910,15 @@ with tabs[0]:
             mime="text/plain",
             use_container_width=True,
             key=f"dl_civil_protection_brief_{selected_city}",
+        )
+    with d5:
+        st.download_button(
+            "⬇ Download daily briefing (.pdf)",
+            data=daily_briefing_pdf_bytes,
+            file_name=f"heatsafe_hr_daily_briefing_{selected_city}.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+            key=f"dl_daily_briefing_pdf_{selected_city}",
         )
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -1025,7 +1072,7 @@ with tabs[2]:
 
     st.markdown('<div class="report-box">', unsafe_allow_html=True)
     st.markdown("### Brief export")
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3, c4 = st.columns(4)
     with c1:
         st.download_button(
             "⬇ Download executive brief (.txt)",
@@ -1052,6 +1099,15 @@ with tabs[2]:
             mime="text/plain",
             use_container_width=True,
             key=f"dl_civil_summary_{selected_city}",
+        )
+    with c4:
+        st.download_button(
+            "⬇ Download daily briefing (.pdf)",
+            data=daily_briefing_pdf_bytes,
+            file_name=f"heatsafe_hr_daily_briefing_{selected_city}.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+            key=f"dl_daily_briefing_pdf_summary_{selected_city}",
         )
     st.markdown("</div>", unsafe_allow_html=True)
 
