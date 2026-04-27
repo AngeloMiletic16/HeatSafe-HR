@@ -13,7 +13,25 @@ if str(PROJECT_ROOT) not in sys.path:
 from src.config import DEFAULT_CITY
 from src.decision_engine import build_city_readiness_summary, readiness_to_color
 from src.forecast_engine import make_ml_forecast
+from src.sidebar import render_app_sidebar
 
+
+st.set_page_config(
+    page_title="Public Advisory",
+    page_icon="📣",
+    layout="wide",
+)
+
+st.markdown(
+    """
+    <style>
+        [data-testid="stSidebarNav"] {
+            display: none;
+        }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 RISK_RANK = {
     "Nizak": 1,
@@ -482,6 +500,207 @@ ADVISORY_DATA = {
 }
 
 
+st.markdown(
+    """
+    <style>
+    .block-container {
+        padding-top: 1.6rem;
+        padding-bottom: 2rem;
+        max-width: 1380px;
+    }
+
+    .page-hero {
+        background: linear-gradient(135deg, #0f172a 0%, #1e293b 55%, #0b3b2e 100%);
+        border-radius: 22px;
+        padding: 1.45rem 1.6rem 1.25rem 1.6rem;
+        color: white;
+        margin-bottom: 1rem;
+        border: 1px solid rgba(255,255,255,0.08);
+        box-shadow: 0 10px 28px rgba(0,0,0,0.16);
+    }
+
+    .page-hero-title {
+        font-size: 2.05rem;
+        font-weight: 800;
+        margin-bottom: 0.35rem;
+    }
+
+    .page-hero-subtitle {
+        font-size: 1rem;
+        line-height: 1.62;
+        opacity: 0.95;
+        max-width: 1050px;
+    }
+
+    .chip-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin-top: 0.85rem;
+    }
+
+    .chip {
+        display: inline-block;
+        padding: 0.36rem 0.7rem;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.10);
+        color: white;
+        font-size: 0.86rem;
+        font-weight: 600;
+        border: 1px solid rgba(255,255,255,0.12);
+    }
+
+    .control-card {
+        background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+        border: 1px solid rgba(15,23,42,0.08);
+        border-radius: 18px;
+        padding: 1rem 1rem 0.9rem 1rem;
+        box-shadow: 0 8px 24px rgba(15,23,42,0.06);
+        margin-bottom: 1rem;
+    }
+
+    .metric-card {
+        background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+        border: 1px solid rgba(15,23,42,0.08);
+        border-radius: 18px;
+        padding: 0.95rem 1rem;
+        box-shadow: 0 8px 24px rgba(15,23,42,0.06);
+        min-height: 112px;
+    }
+
+    .metric-label {
+        font-size: 0.8rem;
+        color: #64748b;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        margin-bottom: 0.35rem;
+    }
+
+    .metric-value {
+        font-size: 1.7rem;
+        font-weight: 800;
+        color: #0f172a;
+        line-height: 1.15;
+        margin-bottom: 0.15rem;
+        word-break: break-word;
+    }
+
+    .metric-sub {
+        font-size: 0.88rem;
+        color: #64748b;
+        line-height: 1.5;
+    }
+
+    .section-title {
+        font-size: 1.35rem;
+        font-weight: 800;
+        color: #0f172a;
+        margin: 0.3rem 0 0.85rem 0;
+    }
+
+    .status-pill {
+        display: inline-block;
+        padding: 0.4rem 0.82rem;
+        border-radius: 999px;
+        color: white;
+        font-weight: 700;
+        font-size: 0.92rem;
+        margin-right: 0.35rem;
+        margin-bottom: 0.35rem;
+    }
+
+    .soft-panel {
+        background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+        border: 1px solid rgba(15,23,42,0.08);
+        border-radius: 18px;
+        padding: 1rem 1rem 0.95rem 1rem;
+        box-shadow: 0 8px 24px rgba(15,23,42,0.06);
+        height: 100%;
+    }
+
+    .panel-title {
+        font-size: 1.06rem;
+        font-weight: 800;
+        color: #0f172a;
+        margin-bottom: 0.7rem;
+    }
+
+    .soft-list {
+        margin: 0;
+        padding-left: 1.1rem;
+        color: #334155;
+        line-height: 1.72;
+        font-size: 0.94rem;
+    }
+
+    .note-box {
+        background: #eff6ff;
+        border-left: 6px solid #2563eb;
+        border-radius: 14px;
+        padding: 0.95rem 1rem;
+        color: #0f172a;
+        margin: 0.75rem 0 1rem 0;
+        line-height: 1.68;
+    }
+
+    .warning-box {
+        background: #fff7ed;
+        border-left: 6px solid #ea580c;
+        border-radius: 14px;
+        padding: 0.95rem 1rem;
+        color: #7c2d12;
+        margin: 0.75rem 0 1rem 0;
+        line-height: 1.68;
+    }
+
+    .summary-card {
+        background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+        border: 1px solid rgba(15,23,42,0.08);
+        border-radius: 20px;
+        padding: 1.1rem 1.15rem;
+        box-shadow: 0 8px 24px rgba(15,23,42,0.06);
+        color: #334155;
+        line-height: 1.72;
+    }
+
+    .report-box {
+        background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+        border: 1px solid rgba(15,23,42,0.08);
+        border-radius: 18px;
+        padding: 1rem;
+        box-shadow: 0 8px 24px rgba(15,23,42,0.06);
+        margin-top: 0.8rem;
+    }
+
+    div.stDownloadButton > button {
+        width: 100%;
+        border-radius: 14px;
+        padding: 0.72rem 1rem;
+        font-weight: 700;
+        border: none;
+        background: linear-gradient(135deg, #0f172a 0%, #1d4ed8 100%);
+        color: white;
+        box-shadow: 0 8px 20px rgba(29, 78, 216, 0.22);
+        transition: all 0.2s ease-in-out;
+    }
+
+    div.stDownloadButton > button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 10px 24px rgba(29, 78, 216, 0.30);
+        background: linear-gradient(135deg, #1e293b 0%, #2563eb 100%);
+        color: white;
+    }
+
+    .stCodeBlock, .stDataFrame {
+        border-radius: 14px;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+
 def metric_card(label: str, value: str, sub: str = "") -> None:
     st.markdown(
         f"""
@@ -566,11 +785,24 @@ def build_public_brief(
     return "\n".join(parts).strip()
 
 
+if "public_advisory_lang_code" not in st.session_state:
+    st.session_state.public_advisory_lang_code = "hr"
+
+lang = st.session_state.public_advisory_lang_code
+ui = LANG_UI[lang]
+
 st.markdown(
     f"""
     <div class="page-hero">
-        <div class="page-hero-title">{LANG_UI['hr']['hero_title']}</div>
-        <div class="page-hero-subtitle">{LANG_UI['hr']['hero_subtitle']}</div>
+        <div class="page-hero-title">{ui['hero_title']}</div>
+        <div class="page-hero-subtitle">{ui['hero_subtitle']}</div>
+        <div class="chip-row">
+            <span class="chip">Public Safety</span>
+            <span class="chip">Citizen Guidance</span>
+            <span class="chip">Tourism Communication</span>
+            <span class="chip">Heat Awareness</span>
+            <span class="chip">Decision Support</span>
+        </div>
     </div>
     """,
     unsafe_allow_html=True,
@@ -586,29 +818,45 @@ cities = [
     "Zagreb",
 ]
 
-lang_col, city_col, scenario_col = st.columns([1, 1.2, 1])
-
-with lang_col:
-    lang_choice = st.radio(
-        "Language / Jezik",
-        options=["Hrvatski", "English"],
-        horizontal=True,
-    )
-    lang = "hr" if lang_choice == "Hrvatski" else "en"
-
-ui = LANG_UI[lang]
-
 default_city = st.session_state.get("selected_city", DEFAULT_CITY)
 default_index = cities.index(default_city) if default_city in cities else 0
 
-with city_col:
-    selected_city = st.selectbox(ui["city"], cities, index=default_index)
-    st.session_state.selected_city = selected_city
+st.markdown('<div class="section-title">Public advisory control panel</div>', unsafe_allow_html=True)
 
-with scenario_col:
-    scenario_enabled = st.toggle(ui["scenario"], value=True)
+with st.container():
+    ctl1, ctl2, ctl3 = st.columns([1, 1.2, 1])
+
+    with ctl1:
+        st.radio(
+            "Language / Jezik",
+            options=["hr", "en"],
+            format_func=lambda x: "Hrvatski" if x == "hr" else "English",
+            horizontal=True,
+            key="public_advisory_lang_code",
+        )
+
+    lang = st.session_state.public_advisory_lang_code
+    ui = LANG_UI[lang]
+
+    with ctl2:
+        selected_city = st.selectbox(ui["city"], cities, index=default_index)
+        st.session_state.selected_city = selected_city
+
+    with ctl3:
+        scenario_enabled = st.toggle(ui["scenario"], value=True)
 
 if scenario_enabled:
+    st.markdown(
+        """
+        <div class="note-box">
+            <b>Scenario mode:</b> koristi se za javno-komunikacijski stress test.
+            Time možeš procijeniti kako bi se preporuke prema građanima, turistima i organizatorima
+            događaja trebale promijeniti u toplijem, vlažnijem ili nepovoljnijem scenariju.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
     s1, s2, s3 = st.columns(3)
     with s1:
         temperature_delta = st.slider(ui["temp_delta"], -2, 12, 6, 1)
@@ -634,8 +882,16 @@ except Exception as exc:
 
 summary = build_city_readiness_summary(selected_city, active_df)
 
-st.markdown(f"## {ui['advisory_level']}")
+render_app_sidebar(
+    selected_city=selected_city,
+    risk_level=summary["next_24h_level"],
+    readiness_status=summary["readiness_status"],
+)
+
+st.markdown('<div class="section-title">Public risk summary</div>', unsafe_allow_html=True)
+
 badge(summary["next_24h_level"], level_color(summary["next_24h_level"]))
+badge(summary["readiness_status"], readiness_to_color(summary["readiness_status"]))
 
 k1, k2, k3, k4 = st.columns(4)
 with k1:
@@ -643,22 +899,21 @@ with k1:
 with k2:
     metric_card(ui["peak7d"], summary["next_7d_peak_level"], f"{summary['next_7d_peak_score']:.1f}")
 with k3:
-    metric_card(ui["peak_date"], pd.to_datetime(summary["next_7d_peak_date"]).strftime("%d.%m.%Y."))
-with k4:
-    metric_card(ui["high_days"], str(summary["high_risk_days"]), summary["readiness_status"])
-
-st.info(
-    ui["today_message"].format(
-        city=selected_city,
-        level=summary["next_24h_level"],
+    metric_card(
+        ui["peak_date"],
+        pd.to_datetime(summary["next_7d_peak_date"]).strftime("%d.%m.%Y."),
+        summary["readiness_status"],
     )
-)
+with k4:
+    metric_card(ui["high_days"], str(summary["high_risk_days"]), ui["advisory_level"])
 
 st.markdown(
     f"""
-    <div class="note-box">
-        <b>{ui['general_header']}:</b><br>
-        {ui['peak_message'].format(
+    <div class="summary-card">
+        <b>{ui['notice_title']}:</b><br><br>
+        {ui["today_message"].format(city=selected_city, level=summary["next_24h_level"])}
+        <br><br>
+        {ui["peak_message"].format(
             date=pd.to_datetime(summary['next_7d_peak_date']).strftime('%d.%m.%Y.'),
             level=summary['next_7d_peak_level'],
             score=f"{summary['next_7d_peak_score']:.1f}",
@@ -683,7 +938,18 @@ if RISK_RANK[summary["next_7d_peak_level"]] > RISK_RANK[summary["next_24h_level"
         unsafe_allow_html=True,
     )
 
-st.markdown(f"## {ui['audience_title']}")
+st.markdown(
+    f"""
+    <div class="note-box">
+        <b>{ui['general_header']}:</b> Ovaj modul je zamišljen kao javno-komunikacijski sloj platforme.
+        Umjesto tehničkog forecast outputa, ovdje se toplinski signal prevodi u razumljive preporuke
+        za svakodnevno ponašanje, zaštitu ranjivih skupina, turističku informaciju i sigurnije planiranje aktivnosti.
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+st.markdown(f'<div class="section-title">{ui["audience_title"]}</div>', unsafe_allow_html=True)
 
 audience_titles = ui["audiences"]
 
@@ -731,8 +997,9 @@ brief_text = build_public_brief(
     wind_delta=wind_delta,
 )
 
+st.markdown('<div class="section-title">Public advisory export</div>', unsafe_allow_html=True)
+
 st.markdown('<div class="report-box">', unsafe_allow_html=True)
-st.markdown(f"### {ui['report_title']}")
 st.download_button(
     ui["download_txt"],
     data=brief_text.encode("utf-8"),
@@ -743,3 +1010,14 @@ st.download_button(
 )
 st.code(brief_text, language="text")
 st.markdown("</div>", unsafe_allow_html=True)
+
+st.markdown(
+    """
+    <div class="note-box">
+        <b>Public-facing role of this page:</b> HeatSafe HR ovdje ne komunicira model ili internu tehničku logiku,
+        nego gotovu javnu preporuku. To je važno jer platforma ne služi samo operaterima, nego i građanima,
+        turistima i organizatorima koji trebaju jasan, brz i praktičan savjet.
+    </div>
+    """,
+    unsafe_allow_html=True,
+)

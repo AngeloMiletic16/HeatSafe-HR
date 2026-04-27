@@ -23,8 +23,20 @@ from src.resource_routing_engine import (
     build_top_dispatch_summary,
     recommend_dispatch_resources,
 )
+from src.sidebar import render_app_sidebar
 
 st.set_page_config(page_title="Command Dashboard", page_icon="🧭", layout="wide")
+
+st.markdown(
+    """
+    <style>
+        [data-testid="stSidebarNav"] {
+            display: none;
+        }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 CITIES = [
     "Dubrovnik",
@@ -64,7 +76,6 @@ READINESS_COLOR_MAP = {
     "Critical Preparedness": "#C0392B",
 }
 
-
 st.markdown(
     """
     <style>
@@ -92,8 +103,9 @@ st.markdown(
 
     .page-hero-subtitle {
         font-size: 0.98rem;
-        line-height: 1.55;
+        line-height: 1.6;
         opacity: 0.95;
+        max-width: 1100px;
     }
 
     .metric-card {
@@ -126,6 +138,7 @@ st.markdown(
     .metric-sub {
         font-size: 0.88rem;
         color: #64748b;
+        line-height: 1.5;
     }
 
     .soft-panel {
@@ -154,7 +167,7 @@ st.markdown(
         margin: 0;
         padding-left: 1.1rem;
         color: #334155;
-        line-height: 1.7;
+        line-height: 1.72;
         font-size: 0.95rem;
     }
 
@@ -177,7 +190,7 @@ st.markdown(
         color: #0f172a;
         margin-top: 0.6rem;
         margin-bottom: 0.8rem;
-        line-height: 1.6;
+        line-height: 1.65;
     }
 
     .priority-card {
@@ -223,6 +236,10 @@ st.markdown(
         font-weight: 700;
         padding: 0.55rem 0.9rem;
     }
+
+    .stDataFrame {
+        border-radius: 14px;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -247,7 +264,8 @@ def pill(text: str, color: str) -> str:
 
 
 def render_list_card(title: str, items: list[str]) -> None:
-    list_html = "".join(f"<li>{item}</li>" for item in items)
+    safe_items = items if items else ["Nema dostupnih stavki za prikaz."]
+    list_html = "".join(f"<li>{item}</li>" for item in safe_items)
     st.markdown(
         f"""
         <div class="soft-panel">
@@ -344,18 +362,8 @@ def build_selected_city_context(
     }
 
 
-st.markdown(
-    """
-    <div class="page-hero">
-        <div class="page-hero-title">🧭 Command Dashboard</div>
-        <div class="page-hero-subtitle">
-            Operator cockpit za više gradova odjednom. Ovdje se spajaju impact-adjusted priority,
-            model consensus, confidence level, uncertainty warning i dispatch routing spreman za odluke.
-        </div>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
+default_city = st.session_state.get("selected_city", DEFAULT_CITY)
+default_index = CITIES.index(default_city) if default_city in CITIES else 0
 
 scenario_enabled = st.toggle("Scenario mode za Command Dashboard", value=True)
 
@@ -380,8 +388,6 @@ reliability_df = build_dashboard_reliability_table(
 
 system_health = build_system_health_summary(reliability_df)
 
-default_city = st.session_state.get("selected_city", DEFAULT_CITY)
-default_index = CITIES.index(default_city) if default_city in CITIES else 0
 selected_city = st.selectbox("Odaberi grad", CITIES, index=default_index)
 st.session_state.selected_city = selected_city
 
@@ -395,6 +401,14 @@ selected_snapshot = selected_context["reliability_snapshot"]
 selected_summary = selected_context["summary"]
 dispatch_df = selected_context["dispatch_df"]
 top_dispatch_summary = selected_context["top_dispatch_summary"]
+priority_groups = selected_context["priority_groups"]
+
+render_app_sidebar(
+    selected_city=selected_city,
+    risk_level=selected_snapshot.get("next_24h_risk"),
+    readiness_status=selected_snapshot.get("readiness_status"),
+    escalation_label=selected_snapshot.get("v3_signal"),
+)
 
 priority_df = reliability_df.sort_values(
     ["impact_adjusted_priority", "reliability_score"],
@@ -405,6 +419,20 @@ uncertainty_df = reliability_df[
     (reliability_df["operator_review_required"] == True)
     | (reliability_df["consensus_status"].isin(["Low consensus", "Mixed signals"]))
 ].copy()
+
+st.markdown(
+    """
+    <div class="page-hero">
+        <div class="page-hero-title">🧭 Command Dashboard</div>
+        <div class="page-hero-subtitle">
+            Operator cockpit za više gradova odjednom. Ovdje se spajaju impact-adjusted priority,
+            model consensus, confidence level, uncertainty warning i dispatch routing spreman za odluke.
+            Cilj nije samo vidjeti koji je grad topliji, nego gdje je signal najvažniji i koliko je metodološki pouzdan.
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 m1, m2, m3, m4, m5 = st.columns(5)
 with m1:
@@ -476,9 +504,18 @@ with tabs[0]:
     st.markdown("## Selected city operator cockpit")
 
     badge_html = (
-        pill(selected_snapshot["readiness_status"], READINESS_COLOR_MAP.get(selected_snapshot["readiness_status"], "#64748b"))
-        + pill(selected_snapshot["consensus_status"], CONSENSUS_COLOR_MAP.get(selected_snapshot["consensus_status"], "#64748b"))
-        + pill(selected_snapshot["confidence_level"], CONFIDENCE_COLOR_MAP.get(selected_snapshot["confidence_level"], "#64748b"))
+        pill(
+            selected_snapshot["readiness_status"],
+            READINESS_COLOR_MAP.get(selected_snapshot["readiness_status"], "#64748b"),
+        )
+        + pill(
+            selected_snapshot["consensus_status"],
+            CONSENSUS_COLOR_MAP.get(selected_snapshot["consensus_status"], "#64748b"),
+        )
+        + pill(
+            selected_snapshot["confidence_level"],
+            CONFIDENCE_COLOR_MAP.get(selected_snapshot["confidence_level"], "#64748b"),
+        )
     )
     st.markdown(badge_html, unsafe_allow_html=True)
 
@@ -531,6 +568,7 @@ with tabs[0]:
             <b>Next 24h risk:</b> {selected_snapshot["next_24h_risk"]}<br>
             <b>Vulnerability band:</b> {selected_snapshot["vulnerability_band"]}<br>
             <b>Vulnerability index:</b> {fmt_float(selected_snapshot["vulnerability_index"], 1)}<br>
+            <b>Priority groups:</b> {", ".join(priority_groups) if priority_groups else "N/A"}<br>
             <b>Top dispatch summary:</b><br>{top_dispatch_summary}
             """,
         )
@@ -678,9 +716,10 @@ with tabs[2]:
     st.markdown(
         """
         <div class="note-box">
-            Prioritet više nije određen samo temperaturom. Rang sada kombinira:
-            toplinski peak, escalation signal i socio-ekonomsku ranjivost, a uz to
-            dodatno provjerava koliko je taj modelni signal metodološki pouzdan.
+            Prioritet više nije određen samo temperaturom. Rang sada kombinira toplinski peak,
+            escalation signal i socio-ekonomsku ranjivost, a uz to dodatno provjerava koliko je
+            taj modelni signal metodološki pouzdan. Time dashboard postaje stvarni operator cockpit,
+            a ne samo pregled vremenskih uvjeta.
         </div>
         """,
         unsafe_allow_html=True,

@@ -4,7 +4,6 @@ import json
 import sys
 from pathlib import Path
 
-# Ensure project root is importable
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
@@ -17,10 +16,14 @@ from src.config import DEFAULT_CITY
 from src.decision_engine import build_city_readiness_summary
 from src.escalation_engine import predict_escalation_from_features
 from src.forecast_engine import make_ml_forecast
-from src.update_live_data import load_refresh_status, refresh_operational_data
-from src.resource_recommender import recommend_resources
+from src.sidebar import render_app_sidebar
+from src.update_live_data import (
+    get_data_freshness_info,
+    load_refresh_audit_log,
+    load_refresh_status,
+    refresh_operational_data,
+)
 from src.vulnerability_engine import (
-    build_impact_adjusted_priority,
     build_vulnerability_recommendations,
     get_city_vulnerability_snapshot,
     identify_vulnerability_drivers,
@@ -33,11 +36,22 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+st.markdown(
+    """
+    <style>
+        [data-testid="stSidebarNav"] {
+            display: none;
+        }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 RISK_DATA_PATH = PROJECT_ROOT / "data" / "processed" / "all_cities_daily_with_risk.csv"
 METRICS_V1_PATH = PROJECT_ROOT / "data" / "models" / "model_metrics.json"
 METRICS_V2_PATH = PROJECT_ROOT / "data" / "models" / "model_metrics_strict.json"
+METRICS_V3_PATH = PROJECT_ROOT / "data" / "models" / "model_metrics_escalation.json"
 
-RISK_ORDER = ["Nizak", "Umjeren", "Visok", "Vrlo visok"]
 RISK_COLOR_MAP = {
     "Nizak": "#2E8B57",
     "Umjeren": "#E6A700",
@@ -64,6 +78,29 @@ DASHBOARD_CITIES = [
     "Šibenik",
     "Zadar",
     "Zagreb",
+]
+
+IMPACT_COUNTERS = [
+    {
+        "label": "Cities in platform",
+        "value": "7",
+        "sub": "Operational city coverage in Croatia",
+    },
+    {
+        "label": "Mapped resources",
+        "value": "58+",
+        "sub": "Cooling / support resource points",
+    },
+    {
+        "label": "Critical points",
+        "value": "35+",
+        "sub": "Hospitals, tourism hubs, elderly care, dense areas",
+    },
+    {
+        "label": "Human framing",
+        "value": "60,000+",
+        "sub": "Estimated heat-related deaths across Europe in 2023",
+    },
 ]
 
 
@@ -99,7 +136,7 @@ def inject_custom_css() -> None:
         .hero-box {
             background: linear-gradient(135deg, #0f172a 0%, #1e293b 55%, #0b3b2e 100%);
             border-radius: 22px;
-            padding: 1.6rem 1.7rem 1.4rem 1.7rem;
+            padding: 1.65rem 1.75rem 1.45rem 1.75rem;
             color: white;
             margin-bottom: 1.2rem;
             border: 1px solid rgba(255,255,255,0.08);
@@ -107,17 +144,18 @@ def inject_custom_css() -> None:
         }
 
         .hero-title {
-            font-size: 2.3rem;
+            font-size: 2.35rem;
             font-weight: 800;
             margin-bottom: 0.35rem;
             letter-spacing: -0.02em;
         }
 
         .hero-subtitle {
-            font-size: 1.02rem;
-            line-height: 1.6;
+            font-size: 1.03rem;
+            line-height: 1.65;
             opacity: 0.95;
             margin-bottom: 1rem;
+            max-width: 1100px;
         }
 
         .chip-row {
@@ -142,7 +180,7 @@ def inject_custom_css() -> None:
             background: #ffffff;
             border: 1px solid rgba(15,23,42,0.08);
             border-radius: 18px;
-            padding: 1rem 1rem 0.9rem 1rem;
+            padding: 1rem 1rem 0.95rem 1rem;
             box-shadow: 0 8px 24px rgba(15,23,42,0.06);
             height: 100%;
         }
@@ -151,7 +189,7 @@ def inject_custom_css() -> None:
             background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
             border: 1px solid rgba(15,23,42,0.08);
             border-radius: 18px;
-            padding: 1rem 1rem 0.9rem 1rem;
+            padding: 1rem 1rem 0.95rem 1rem;
             box-shadow: 0 8px 24px rgba(15,23,42,0.06);
             min-height: 118px;
         }
@@ -176,23 +214,36 @@ def inject_custom_css() -> None:
         .metric-sub {
             font-size: 0.88rem;
             color: #64748b;
+            line-height: 1.5;
         }
 
         .section-title {
             font-size: 1.45rem;
             font-weight: 800;
-            margin: 0.3rem 0 0.8rem 0;
+            margin: 0.35rem 0 0.85rem 0;
             color: #0f172a;
         }
 
         .soft-note {
             background: #eff6ff;
             border-left: 5px solid #3b82f6;
-            padding: 0.9rem 1rem;
+            padding: 0.95rem 1rem;
             border-radius: 12px;
             color: #0f172a;
             margin-top: 0.6rem;
             margin-bottom: 0.6rem;
+            line-height: 1.65;
+        }
+
+        .warning-note {
+            background: #fff7ed;
+            border-left: 5px solid #f97316;
+            padding: 0.95rem 1rem;
+            border-radius: 12px;
+            color: #7c2d12;
+            margin-top: 0.6rem;
+            margin-bottom: 0.6rem;
+            line-height: 1.65;
         }
 
         .status-pill {
@@ -212,6 +263,7 @@ def inject_custom_css() -> None:
             border: 1px solid rgba(15,23,42,0.08);
             box-shadow: 0 8px 24px rgba(15,23,42,0.06);
             background: #ffffff;
+            height: 100%;
         }
 
         .mini-title {
@@ -227,71 +279,68 @@ def inject_custom_css() -> None:
             font-size: 1.35rem;
             font-weight: 800;
             color: #0f172a;
-            margin-bottom: 0.2rem;
+            margin-bottom: 0.25rem;
         }
 
         .small-muted {
             font-size: 0.88rem;
             color: #64748b;
+            line-height: 1.55;
         }
 
-        .cta-card {
+        .story-card {
             border-radius: 18px;
             padding: 1rem;
             border: 1px solid rgba(15,23,42,0.08);
             box-shadow: 0 8px 24px rgba(15,23,42,0.06);
+            background: #ffffff;
+            height: 100%;
+        }
+
+        .story-number {
+            width: 34px;
+            height: 34px;
+            border-radius: 999px;
+            background: #0f172a;
+            color: white;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 800;
+            margin-bottom: 0.7rem;
+        }
+
+        .module-card {
+            border-radius: 18px;
+            border: 1px solid rgba(15,23,42,0.08);
+            box-shadow: 0 8px 24px rgba(15,23,42,0.06);
+            background: #ffffff;
+            overflow: hidden;
+            margin-bottom: 0.55rem;
+            height: 100%;
+        }
+
+        .module-head {
+            padding: 0.75rem 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .module-body {
+            padding: 0.95rem 1rem 0.45rem 1rem;
+        }
+
+        .closing-card {
             background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+            border: 1px solid rgba(15,23,42,0.08);
+            border-radius: 20px;
+            padding: 1.2rem 1.25rem;
+            box-shadow: 0 8px 24px rgba(15,23,42,0.06);
         }
 
         .stDataFrame, .stPlotlyChart {
             border-radius: 14px;
-        }
-                .insight-card {
-            background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
-            border: 1px solid rgba(15,23,42,0.08);
-            border-radius: 18px;
-            padding: 1rem 1.05rem;
-            box-shadow: 0 8px 24px rgba(15,23,42,0.06);
-            min-height: 220px;
-            height: 100%;
-        }
-
-        .insight-card-title {
-            font-size: 1.08rem;
-            font-weight: 800;
-            color: #0f172a;
-            margin-bottom: 0.8rem;
-        }
-
-        .insight-card-sub {
-            font-size: 0.85rem;
-            color: #64748b;
-            margin-bottom: 0.85rem;
-            line-height: 1.5;
-        }
-
-        .insight-list {
-            margin: 0;
-            padding-left: 1.15rem;
-            color: #334155;
-            line-height: 1.75;
-            font-size: 0.95rem;
-        }
-
-        .insight-list li {
-            margin-bottom: 0.5rem;
-        }
-
-        .section-note {
-            background: #f8fafc;
-            border: 1px solid rgba(15,23,42,0.08);
-            border-radius: 14px;
-            padding: 0.8rem 0.95rem;
-            color: #334155;
-            font-size: 0.93rem;
-            line-height: 1.6;
-            margin-top: 0.55rem;
-            margin-bottom: 0.9rem;
         }
         </style>
         """,
@@ -301,10 +350,6 @@ def inject_custom_css() -> None:
 
 def risk_color(level: str) -> str:
     return RISK_COLOR_MAP.get(level, "#666666")
-
-
-def readiness_from_level(level: str) -> str:
-    return READINESS_MAP.get(level, "Monitoring")
 
 
 def render_status_pill(level: str) -> None:
@@ -334,21 +379,6 @@ def render_metric_card(label: str, value: str, subtitle: str = "") -> None:
         unsafe_allow_html=True,
     )
 
-def render_insight_list_card(title: str, items: list[str], subtitle: str = "") -> None:
-    list_html = "".join(f"<li>{item}</li>" for item in items)
-    st.markdown(
-        f"""
-        <div class="insight-card">
-            <div class="insight-card-title">{title}</div>
-            {f'<div class="insight-card-sub">{subtitle}</div>' if subtitle else ''}
-            <ul class="insight-list">
-                {list_html}
-            </ul>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
 
 def build_gauge(score: float, title: str):
     fig = go.Figure(
@@ -369,11 +399,11 @@ def build_gauge(score: float, title: str):
             },
         )
     )
-    fig.update_layout(height=260, margin=dict(l=20, r=20, t=50, b=10))
+    fig.update_layout(height=270, margin=dict(l=20, r=20, t=50, b=10))
     return fig
 
 
-def build_model_summary_table(metrics_v1: dict, metrics_v2: dict) -> pd.DataFrame:
+def build_model_summary_table(metrics_v1: dict, metrics_v2: dict, metrics_v3: dict) -> pd.DataFrame:
     rows = []
 
     if metrics_v1:
@@ -386,6 +416,8 @@ def build_model_summary_table(metrics_v1: dict, metrics_v2: dict) -> pd.DataFram
                 "Accuracy": model_metrics.get("accuracy"),
                 "Macro F1": model_metrics.get("macro_f1"),
                 "Weighted F1": model_metrics.get("weighted_f1"),
+                "F1 positive": None,
+                "ROC AUC": None,
             }
         )
 
@@ -399,13 +431,36 @@ def build_model_summary_table(metrics_v1: dict, metrics_v2: dict) -> pd.DataFram
                 "Accuracy": model_metrics.get("accuracy"),
                 "Macro F1": model_metrics.get("macro_f1"),
                 "Weighted F1": model_metrics.get("weighted_f1"),
+                "F1 positive": None,
+                "ROC AUC": None,
+            }
+        )
+
+    if metrics_v3:
+        best_model_name = metrics_v3.get("best_model", "N/A")
+        model_metrics = metrics_v3.get("models", {}).get(best_model_name, {})
+        rows.append(
+            {
+                "Model version": "Escalation model (v3)",
+                "Best model": best_model_name,
+                "Accuracy": model_metrics.get("accuracy"),
+                "Macro F1": None,
+                "Weighted F1": None,
+                "F1 positive": model_metrics.get("f1_positive"),
+                "ROC AUC": model_metrics.get("roc_auc"),
             }
         )
 
     if not rows:
         return pd.DataFrame()
 
-    return pd.DataFrame(rows)
+    summary_df = pd.DataFrame(rows)
+    for col in ["Accuracy", "Macro F1", "Weighted F1", "F1 positive", "ROC AUC"]:
+        if col in summary_df.columns:
+            summary_df[col] = summary_df[col].apply(
+                lambda x: round(float(x), 3) if pd.notna(x) else None
+            )
+    return summary_df
 
 
 def build_live_escalation_snapshot(city: str, forecast_df: pd.DataFrame) -> dict:
@@ -467,14 +522,7 @@ def build_command_dashboard_snapshot(cities: list[str]) -> pd.DataFrame:
 
         summary = build_city_readiness_summary(city, forecast_df)
         escalation = build_live_escalation_snapshot(city, forecast_df)
-        vulnerability_snapshot = get_city_vulnerability_snapshot(city)
 
-        impact_adjusted_priority = build_impact_adjusted_priority(
-            next_7d_peak_score=float(summary["next_7d_peak_score"]),
-            escalation_probability_72h=escalation["escalation_probability_72h"],
-            vulnerability_index=float(vulnerability_snapshot["vulnerability_index"]),
-        )
-        
         first_row = forecast_df.sort_values("date").iloc[0]
 
         rows.append(
@@ -491,9 +539,6 @@ def build_command_dashboard_snapshot(cities: list[str]) -> pd.DataFrame:
                 "next_7d_peak_level": summary["next_7d_peak_level"],
                 "next_7d_peak_score": float(summary["next_7d_peak_score"]),
                 "high_risk_days": int(summary["high_risk_days"]),
-                "vulnerability_index": float(vulnerability_snapshot["vulnerability_index"]),
-                "vulnerability_band": vulnerability_snapshot["vulnerability_band"],
-                "impact_adjusted_priority": float(impact_adjusted_priority),
                 "escalation_probability_72h": escalation["escalation_probability_72h"],
                 "escalation_label_72h": escalation["escalation_label_72h"],
                 "escalation_flag_72h": escalation["escalation_flag_72h"],
@@ -504,12 +549,47 @@ def build_command_dashboard_snapshot(cities: list[str]) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-# ---------- Load ----------
 inject_custom_css()
+
+if "demo_mode" not in st.session_state:
+    st.session_state.demo_mode = False
+
+if "demo_city" not in st.session_state:
+    st.session_state.demo_city = "Split"
+
+topbar_left, topbar_right = st.columns([1.25, 1])
+
+with topbar_left:
+    freshness_info = get_data_freshness_info()
+    st.markdown(
+        f'<span class="status-pill" style="background:{freshness_info["badge_color"]};">{freshness_info["badge_label"]}</span>',
+        unsafe_allow_html=True,
+    )
+
+with topbar_right:
+    btn1, btn2 = st.columns(2)
+    with btn1:
+        if st.button("🔄 Refresh data", use_container_width=True):
+            refresh_result = refresh_operational_data()
+            st.cache_data.clear()
+            if refresh_result.get("status") == "success":
+                st.success("Operational data refreshed.")
+            else:
+                st.error(refresh_result.get("message", "Refresh failed."))
+    with btn2:
+        if st.button("🎬 Demo mode", use_container_width=True):
+            st.session_state.demo_mode = True
+            st.session_state.demo_city = "Split"
+            st.session_state.selected_city = "Split"
+            st.rerun()
+
+refresh_status = load_refresh_status()
+refresh_audit_log = load_refresh_audit_log(limit=5)
 
 df = load_risk_data()
 metrics_v1 = load_json_if_exists(METRICS_V1_PATH)
 metrics_v2 = load_json_if_exists(METRICS_V2_PATH)
+metrics_v3 = load_json_if_exists(METRICS_V3_PATH)
 
 cities = sorted(df["city"].unique().tolist())
 default_index = cities.index(DEFAULT_CITY) if DEFAULT_CITY in cities else 0
@@ -524,97 +604,40 @@ latest_available_date = max(
     pd.to_datetime(dashboard_snapshot_df["date"]).max(),
 )
 
-last_refresh_status = load_refresh_status()
-
 ranked_cities_df = dashboard_snapshot_df.sort_values(
-    ["impact_adjusted_priority", "escalation_probability_72h", "next_7d_peak_score", "heat_risk_score"],
-    ascending=[False, False, False, False],
+    ["escalation_probability_72h", "next_7d_peak_score", "heat_risk_score"],
+    ascending=[False, False, False],
 ).reset_index(drop=True)
 
-# ---------- Sidebar ----------
-st.sidebar.title("HeatSafe HR")
-selected_city = st.sidebar.selectbox(
-    "Odaberi grad",
-    cities,
-    index=cities.index(st.session_state.selected_city) if st.session_state.selected_city in cities else default_index,
-)
+if st.session_state.demo_mode:
+    selected_city = st.session_state.demo_city
+else:
+    selected_city = st.sidebar.selectbox(
+        "Odaberi grad",
+        cities,
+        index=cities.index(st.session_state.selected_city) if st.session_state.selected_city in cities else default_index,
+    )
+
 st.session_state.selected_city = selected_city
 
-st.sidebar.markdown("### Live data")
-
-if st.sidebar.button("🔄 Osvježi podatke", use_container_width=True):
-    with st.spinner("Osvježavam podatke za sve gradove..."):
-        refresh_status = refresh_operational_data(
-            rebuild_escalation_dataset=True,
-            retrain_models=False,
-            fail_fast=True,
-        )
-
-    if refresh_status["success"]:
-        st.cache_data.clear()
-        st.success("Podaci su uspješno osvježeni.")
-        st.rerun()
-    else:
-        st.error("Došlo je do greške tijekom osvježavanja podataka.")
-        with st.expander("Detalji refresha"):
-            st.code(json.dumps(refresh_status, indent=2, ensure_ascii=False))
-
-if last_refresh_status:
-    finished_at = last_refresh_status.get("finished_at")
-    success_flag = last_refresh_status.get("success")
-
-    if finished_at:
-        st.sidebar.caption(
-            f"Zadnji refresh: {pd.to_datetime(finished_at).strftime('%d.%m.%Y. %H:%M')}"
-        )
-    st.sidebar.caption(f"Status: {'OK' if success_flag else 'Error'}")
-else:
-    st.sidebar.caption("Zadnji refresh: još nije pokrenut")
-
 selected_city_snapshot = ranked_cities_df[ranked_cities_df["city"] == selected_city].iloc[0]
-selected_city_vulnerability = get_city_vulnerability_snapshot(selected_city)
-selected_city_vulnerability_drivers = identify_vulnerability_drivers(selected_city_vulnerability)
-selected_city_vulnerability_recommendations = build_vulnerability_recommendations(selected_city_vulnerability)
-recommended_resources_df = recommend_resources(
-    city=selected_city,
-    escalation_label=selected_city_snapshot["escalation_label_72h"],
-    top_n=3,
-)
+vulnerability_snapshot = get_city_vulnerability_snapshot(selected_city)
+vulnerability_drivers = identify_vulnerability_drivers(vulnerability_snapshot)
+vulnerability_recommendations = build_vulnerability_recommendations(vulnerability_snapshot)
 
 metrics_v1_best = metrics_v1.get(metrics_v1.get("best_model", ""), {})
 metrics_v2_best = metrics_v2.get(metrics_v2.get("best_model", ""), {})
+metrics_v3_best_name = metrics_v3.get("best_model", "N/A")
+metrics_v3_best = metrics_v3.get("models", {}).get(metrics_v3_best_name, {})
 
-st.sidebar.markdown("### Status")
-st.sidebar.markdown(f"**Grad:** {selected_city}")
-st.sidebar.markdown(f"**Risk level:** {selected_city_snapshot['risk_level']}")
-st.sidebar.markdown(f"**Readiness:** {selected_city_snapshot['readiness_status']}")
-st.sidebar.markdown(
-    f"**72h escalation:** {selected_city_snapshot['escalation_label_72h']} "
-    f"({selected_city_snapshot['escalation_probability_72h']:.2f})"
-)
-st.sidebar.markdown(
-    f"**Vulnerability:** {selected_city_snapshot['vulnerability_band']} "
-    f"({selected_city_snapshot['vulnerability_index']:.1f})"
-)
-st.sidebar.markdown(
-    f"**Impact-adjusted priority:** {selected_city_snapshot['impact_adjusted_priority']:.1f}"
+render_app_sidebar(
+    selected_city=selected_city,
+    risk_level=selected_city_snapshot["risk_level"],
+    readiness_status=selected_city_snapshot["readiness_status"],
+    escalation_label=selected_city_snapshot["escalation_label_72h"],
+    escalation_probability=selected_city_snapshot["escalation_probability_72h"],
 )
 
-st.sidebar.markdown("### Brza navigacija")
-st.sidebar.page_link("Home.py", label="Home", icon="🏠")
-st.sidebar.page_link("pages/1_Overview.py", label="Overview", icon="📊")
-st.sidebar.page_link("pages/2_History.py", label="History", icon="🕘")
-st.sidebar.page_link("pages/3_Insights.py", label="Insights", icon="🧠")
-st.sidebar.page_link("pages/4_Forecast.py", label="Forecast", icon="🔮")
-st.sidebar.page_link("pages/5_Action_Center.py", label="Action Center", icon="🚨")
-st.sidebar.page_link("pages/6_Command_Dashboard.py", label="Command Dashboard", icon="🧭")
-st.sidebar.page_link("pages/7_Methodology_Research.py", label="Methodology / Research", icon="🧪")
-st.sidebar.page_link("pages/8_Public_Advisory.py", label="Public Advisory", icon="📣")
-st.sidebar.page_link("pages/9_Resources_Map.py", label="Resources Map", icon="🧊")
-st.sidebar.page_link("pages/10_Alert_Center.py", label="Alert Center", icon="🚨")
-st.sidebar.page_link("pages/11_Historical_Replay.py", label="Historical Replay", icon="⏪")
-
-# ---------- Hero ----------
 st.markdown(
     """
     <div class="hero-box">
@@ -622,7 +645,8 @@ st.markdown(
         <div class="hero-subtitle">
             AI platforma za rano upozoravanje na toplinske valove i procjenu toplinskog stresa
             u hrvatskim gradovima. Sustav spaja meteorološke podatke, risk engine, strojno učenje,
-            scenarije i operativne preporuke za gradove, javne službe i turizam.
+            vulnerabilnost, resurse, explainable AI, dispatch routing i operativne preporuke
+            za stvarni odgovor na toplinske rizike.
         </div>
         <div class="chip-row">
             <span class="chip">Smart City</span>
@@ -630,13 +654,124 @@ st.markdown(
             <span class="chip">Climate Resilience</span>
             <span class="chip">Public Safety</span>
             <span class="chip">Tourism Readiness</span>
+            <span class="chip">Decision Support</span>
         </div>
     </div>
     """,
     unsafe_allow_html=True,
 )
 
-# ---------- KPI row ----------
+st.markdown(
+    f"""
+    <div class="soft-note">
+        <b>Data freshness:</b> {freshness_info["message"]}<br>
+        <b>Last refresh status:</b> {refresh_status.get("status", "unknown")}<br>
+        <b>Cities updated:</b> {refresh_status.get("cities_updated", 0)}
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+if freshness_info["freshness_state"] in ["stale", "error"]:
+    st.markdown(
+        """
+        <div class="warning-note">
+            <b>Operational warning:</b> Podaci nisu svježi. Prije donošenja odluka preporučuje se pokrenuti refresh
+            i provjeriti audit trail.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+st.markdown('<div class="section-title">Platform story</div>', unsafe_allow_html=True)
+
+story1, story2, story3 = st.columns(3)
+with story1:
+    st.markdown(
+        """
+        <div class="story-card">
+            <div class="story-number">1</div>
+            <div class="big-city">Detect</div>
+            <div class="small-muted">
+                HeatSafe HR rano detektira rast toplinskog rizika kroz multiclass ML modele,
+                72h escalation predictor i scenario simulation.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+with story2:
+    st.markdown(
+        """
+        <div class="story-card">
+            <div class="story-number">2</div>
+            <div class="big-city">Decide</div>
+            <div class="small-muted">
+                Platforma kombinira readiness, vulnerability, XAI i dispatch routing kako bi
+                operateri znali gdje je rizik najveći, tko je najizloženiji i koji resurs prvo aktivirati.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+with story3:
+    st.markdown(
+        """
+        <div class="story-card">
+            <div class="story-number">3</div>
+            <div class="big-city">Communicate</div>
+            <div class="small-muted">
+                Sustav generira public advisory, alert pakete i official-style PDF daily briefing
+                spreman za službe, turizam i javnu komunikaciju.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+st.markdown("")
+demo_col1, demo_col2 = st.columns([1.2, 1])
+with demo_col1:
+    if st.session_state.demo_mode:
+        st.markdown(
+            f"""
+            <div class="soft-note">
+                <b>Demo mode active:</b> fokusiran je grad <b>{st.session_state.demo_city}</b> kao primjer
+                city-level heat emergency workflowa. Preporučeni flow je:
+                <b>Command Dashboard → Action Center → Alert Center → PDF Daily Briefing</b>.
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+with demo_col2:
+    if st.session_state.demo_mode:
+        if st.button("Exit Demo Mode", use_container_width=True):
+            st.session_state.demo_mode = False
+            st.rerun()
+
+st.divider()
+
+st.markdown('<div class="section-title">Human impact framing</div>', unsafe_allow_html=True)
+
+impact_cols = st.columns(4)
+for idx, item in enumerate(IMPACT_COUNTERS):
+    with impact_cols[idx]:
+        render_metric_card(item["label"], item["value"], item["sub"])
+
+st.markdown(
+    """
+    <div class="soft-note">
+        <b>Why this matters:</b> toplinski valovi više nisu samo meteorološki problem. Oni utječu na zdravlje,
+        turizam, javne službe, starije osobe, djecu i radnike na otvorenom. HeatSafe HR je zamišljen kao alat
+        koji gradovima omogućuje raniju pripremu, ciljanu komunikaciju i bolju raspodjelu resursa prije nego
+        toplinski rizik preraste u stvarni operativni problem.
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+st.divider()
+
 k1, k2, k3, k4 = st.columns(4)
 with k1:
     render_metric_card(
@@ -658,21 +793,10 @@ with k3:
     )
 with k4:
     render_metric_card(
-        "Gradova u sustavu",
-        str(len(cities)),
-        "Croatia v1 coverage",
+        "Escalation model F1+",
+        str(metrics_v3_best.get("f1_positive", "N/A")),
+        metrics_v3_best_name,
     )
-
-st.markdown(
-    """
-    <div class="soft-note">
-        <b>Competition framing:</b> HeatSafe HR nije samo weather dashboard,
-        nego AI/ML decision-support sustav koji gradovima i službama pomaže da
-        nekoliko dana unaprijed prepoznaju toplinski rizik i pripreme odgovor.
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
 
 highest_escalation_row = ranked_cities_df.sort_values(
     ["escalation_probability_72h", "next_7d_peak_score"],
@@ -691,90 +815,108 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-if last_refresh_status:
-    finished_at = last_refresh_status.get("finished_at")
-    success_flag = last_refresh_status.get("success")
-
-    if finished_at:
-        st.markdown(
-            f"""
-            <div class="soft-note">
-                <b>Live refresh status:</b> zadnje osvježavanje podataka završilo je
-                <b>{pd.to_datetime(finished_at).strftime('%d.%m.%Y. u %H:%M')}</b>
-                uz status <b>{'OK' if success_flag else 'Error'}</b>.
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
 st.divider()
 
-# ---------- Selected city summary ----------
 st.markdown('<div class="section-title">Selected city command view</div>', unsafe_allow_html=True)
+
+risk_color_hex = risk_color(str(selected_city_snapshot["risk_level"]))
+esc_color_hex = ESCALATION_COLOR_MAP.get(selected_city_snapshot["escalation_label_72h"], "#64748b")
+date_str = pd.to_datetime(selected_city_snapshot["date"]).strftime("%d.%m.%Y.")
 
 left, middle, right = st.columns([1.05, 1.1, 1])
 
 with left:
-    st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.markdown(f"### {selected_city}")
-    render_status_pill(str(selected_city_snapshot["risk_level"]))
-    escalation_badge(
-        selected_city_snapshot["escalation_label_72h"],
-        ESCALATION_COLOR_MAP.get(selected_city_snapshot["escalation_label_72h"], "#64748b"),
+    st.markdown(
+        f"""
+        <div class="card" style="padding:1.2rem 1.3rem;">
+            <div style="font-size:1.5rem;font-weight:800;color:#0f172a;margin-bottom:0.7rem;">{selected_city}</div>
+            <div style="display:flex;gap:0.5rem;margin-bottom:1rem;flex-wrap:wrap;">
+                <span style="background:{risk_color_hex};color:white;padding:0.3rem 0.9rem;border-radius:999px;font-size:0.85rem;font-weight:700;">{selected_city_snapshot["risk_level"]}</span>
+                <span style="background:{esc_color_hex};color:white;padding:0.3rem 0.9rem;border-radius:999px;font-size:0.85rem;font-weight:700;">{selected_city_snapshot["escalation_label_72h"]}</span>
+            </div>
+            <div style="border-top:1px solid #f1f5f9;padding-top:0.9rem;display:flex;flex-direction:column;gap:0.55rem;">
+                <div style="display:flex;justify-content:space-between;font-size:0.9rem;">
+                    <span style="color:#64748b;font-weight:500;">Readiness status</span>
+                    <span style="color:#0f172a;font-weight:700;">{selected_city_snapshot["readiness_status"]}</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;font-size:0.9rem;">
+                    <span style="color:#64748b;font-weight:500;">72h escalation prob.</span>
+                    <span style="color:#0f172a;font-weight:700;">{selected_city_snapshot["escalation_probability_72h"]:.2f}</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;font-size:0.9rem;">
+                    <span style="color:#64748b;font-weight:500;">Next 7d peak</span>
+                    <span style="color:#0f172a;font-weight:700;">{selected_city_snapshot["next_7d_peak_level"]} ({selected_city_snapshot["next_7d_peak_score"]:.1f})</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;font-size:0.9rem;">
+                    <span style="color:#64748b;font-weight:500;">Vulnerability band</span>
+                    <span style="color:#0f172a;font-weight:700;">{vulnerability_snapshot["vulnerability_band"]}</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;font-size:0.9rem;">
+                    <span style="color:#64748b;font-weight:500;">Heat Risk Score today</span>
+                    <span style="color:#0f172a;font-weight:700;">{selected_city_snapshot["heat_risk_score"]:.1f}</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;font-size:0.9rem;">
+                    <span style="color:#64748b;font-weight:500;">Temp max</span>
+                    <span style="color:#0f172a;font-weight:700;">{selected_city_snapshot["temp_max"]:.1f} °C</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;font-size:0.9rem;">
+                    <span style="color:#64748b;font-weight:500;">Apparent temp max</span>
+                    <span style="color:#0f172a;font-weight:700;">{selected_city_snapshot["apparent_temp_max"]:.1f} °C</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;font-size:0.9rem;">
+                    <span style="color:#64748b;font-weight:500;">Humidity mean</span>
+                    <span style="color:#0f172a;font-weight:700;">{selected_city_snapshot["humidity_mean"]:.1f} %</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;font-size:0.9rem;">
+                    <span style="color:#64748b;font-weight:500;">Wind speed mean</span>
+                    <span style="color:#0f172a;font-weight:700;">{selected_city_snapshot["wind_speed_mean"]:.1f} m/s</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;font-size:0.9rem;border-top:1px solid #f1f5f9;padding-top:0.55rem;margin-top:0.2rem;">
+                    <span style="color:#64748b;font-weight:500;">Date</span>
+                    <span style="color:#0f172a;font-weight:700;">{date_str}</span>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
-    st.markdown("")
-    st.markdown(f"**Readiness status:** {selected_city_snapshot['readiness_status']}")
-    st.markdown(f"**Heat Risk Score:** {selected_city_snapshot['heat_risk_score']:.1f}")
-    st.markdown(f"**72h escalation probability:** {selected_city_snapshot['escalation_probability_72h']:.2f}")
-    st.markdown(f"**Vulnerability index:** {selected_city_snapshot['vulnerability_index']:.1f}")
-    st.markdown(f"**Vulnerability band:** {selected_city_snapshot['vulnerability_band']}")
-    st.markdown(f"**Impact-adjusted priority:** {selected_city_snapshot['impact_adjusted_priority']:.1f}")
-    st.markdown(f"**Temp max:** {selected_city_snapshot['temp_max']:.1f} °C")
-    st.markdown(f"**Apparent temp max:** {selected_city_snapshot['apparent_temp_max']:.1f} °C")
-    st.markdown(f"**Humidity mean:** {selected_city_snapshot['humidity_mean']:.1f} %")
-    if pd.notna(selected_city_snapshot["wind_speed_mean"]):
-        st.markdown(f"**Wind speed mean:** {selected_city_snapshot['wind_speed_mean']:.1f} m/s")
-    st.markdown(f"**Date:** {pd.to_datetime(selected_city_snapshot['date']).strftime('%d.%m.%Y.')}")
-    st.markdown("</div>", unsafe_allow_html=True)
 
 with middle:
     gauge_fig = build_gauge(selected_city_snapshot["heat_risk_score"], "Current Heat Risk Score")
     st.plotly_chart(gauge_fig, use_container_width=True)
 
 with right:
-    st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.markdown("### Quick interpretation")
-    quick_text = (
-        f"Za grad **{selected_city_snapshot['city']}** trenutni forecast signal pokazuje "
-        f"razinu rizika **{selected_city_snapshot['risk_level']}** uz score "
-        f"**{selected_city_snapshot['heat_risk_score']:.1f}**. "
-        f"Sustav procjenjuje readiness status **{selected_city_snapshot['readiness_status']}**.\n\n"
-        f"V3 early-warning model daje **72h escalation probability = "
-        f"{selected_city_snapshot['escalation_probability_72h']:.2f}** "
-        f"i signal **{selected_city_snapshot['escalation_label_72h']}**."
-        f"\n\nSocio-economic vulnerability layer daje indeks "
-        f"**{selected_city_snapshot['vulnerability_index']:.1f}** "
-        f"uz band **{selected_city_snapshot['vulnerability_band']}**, "
-        f"pa impact-adjusted priority iznosi "
-        f"**{selected_city_snapshot['impact_adjusted_priority']:.1f}**."
+    st.markdown(
+        f"""
+        <div class="card" style="padding:1.2rem 1.3rem;">
+            <div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.06em;color:#64748b;font-weight:700;margin-bottom:0.5rem;">Quick interpretation</div>
+            <div style="font-size:0.95rem;color:#0f172a;line-height:1.72;margin-bottom:1rem;">
+                Za grad <b>{selected_city_snapshot["city"]}</b> trenutni signal pokazuje razinu rizika
+                <b>{selected_city_snapshot["risk_level"]}</b> i readiness status
+                <b>{selected_city_snapshot["readiness_status"]}</b>.
+                Operativno važniji indikator je da model procjenjuje
+                <b>72h escalation probability = {selected_city_snapshot["escalation_probability_72h"]:.2f}</b>,
+                dok je <b>next 7d peak = {selected_city_snapshot["next_7d_peak_level"]} ({selected_city_snapshot["next_7d_peak_score"]:.1f})</b>.
+            </div>
+            <div style="border-top:1px solid #f1f5f9;padding-top:0.9rem;">
+                <div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.06em;color:#64748b;font-weight:700;margin-bottom:0.5rem;">V3 Early-warning signal</div>
+                <div style="font-size:0.95rem;color:#0f172a;line-height:1.7;margin-bottom:0.8rem;">
+                    72h escalation probability: <b>{selected_city_snapshot["escalation_probability_72h"]:.2f}</b><br>
+                    Signal: <b>{selected_city_snapshot["escalation_label_72h"]}</b><br>
+                    Vulnerability context: <b>{vulnerability_snapshot["vulnerability_band"]}</b>
+                </div>
+                <div style="background:#f8fafc;border-left:3px solid {esc_color_hex};border-radius:0 10px 10px 0;padding:0.7rem 0.9rem;font-size:0.88rem;color:#1e293b;line-height:1.6;">
+                    {selected_city_snapshot["escalation_operator_message"]}
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
-    st.write(quick_text)
-
-    if str(selected_city_snapshot["risk_level"]) == "Nizak":
-        st.success("Rutinsko praćenje uvjeta.")
-    elif str(selected_city_snapshot["risk_level"]) == "Umjeren":
-        st.warning("Pojačano praćenje i priprema komunikacije.")
-    elif str(selected_city_snapshot["risk_level"]) == "Visok":
-        st.warning("Povećana pripravnost i operativni fokus.")
-    else:
-        st.error("Kritična pripravnost i pojačane mjere.")
-
-    st.info(selected_city_snapshot["escalation_operator_message"])
-    st.markdown("</div>", unsafe_allow_html=True)
 
 st.markdown('<div class="section-title">72h escalation early-warning</div>', unsafe_allow_html=True)
 
-esc1, esc2, esc3, esc4 = st.columns(4)
+esc1, esc2, esc3 = st.columns(3)
 with esc1:
     render_metric_card(
         "72h escalation probability",
@@ -793,90 +935,111 @@ with esc3:
         selected_city_snapshot["next_7d_peak_level"],
         f"{selected_city_snapshot['next_7d_peak_score']:.1f}",
     )
-with esc4:
-    render_metric_card(
-        "Vulnerability band",
-        selected_city_snapshot["vulnerability_band"],
-        f"{selected_city_snapshot['vulnerability_index']:.1f}",
-    )
 
-st.divider()
+st.markdown('<div class="section-title">Vulnerability preview</div>', unsafe_allow_html=True)
 
-st.markdown('<div class="section-title">Socio-economic vulnerability layer</div>', unsafe_allow_html=True)
+vul_band_color = {
+    "Low vulnerability": "#2E8B57",
+    "Moderate vulnerability": "#E6A700",
+    "High vulnerability": "#E67E22",
+    "Very high vulnerability": "#C0392B",
+}.get(vulnerability_snapshot["vulnerability_band"], "#64748b")
 
 st.markdown(
-    """
-    <div class="section-note">
-        Ovaj sloj ne gleda samo meteorološki signal, nego procjenjuje koliko bi toplinski rizik
-        mogao imati veći društveni učinak zbog urban heat island efekta, turizma, starijeg stanovništva,
-        dostupnosti cooling centara i drugih ranjivosti.
+    f"""
+    <div style="
+        background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+        border-radius: 18px;
+        padding: 1.4rem 1.6rem;
+        color: white;
+        margin-bottom: 1rem;
+        display: flex;
+        align-items: center;
+        gap: 2.5rem;
+        flex-wrap: wrap;
+    ">
+        <div>
+            <div style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.06em;opacity:0.55;margin-bottom:0.3rem;">Vulnerability Index</div>
+            <div style="font-size:2.6rem;font-weight:800;line-height:1;">{vulnerability_snapshot['vulnerability_index']:.1f}</div>
+            <div style="font-size:0.82rem;opacity:0.5;margin-top:0.25rem;">City-level profile</div>
+        </div>
+        <div style="width:1px;background:rgba(255,255,255,0.1);height:64px;"></div>
+        <div>
+            <div style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.06em;opacity:0.55;margin-bottom:0.5rem;">Vulnerability Band</div>
+            <span style="background:{vul_band_color};padding:0.35rem 1rem;border-radius:999px;font-size:0.95rem;font-weight:700;">
+                {vulnerability_snapshot['vulnerability_band']}
+            </span>
+        </div>
+        <div style="width:1px;background:rgba(255,255,255,0.1);height:64px;"></div>
+        <div>
+            <div style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.06em;opacity:0.55;margin-bottom:0.3rem;">Active Drivers</div>
+            <div style="font-size:2.6rem;font-weight:800;line-height:1;">{len(vulnerability_drivers)}</div>
+            <div style="font-size:0.82rem;opacity:0.5;margin-top:0.25rem;">Operational prioritization input</div>
+        </div>
     </div>
     """,
     unsafe_allow_html=True,
 )
 
-v1, v2, v3 = st.columns(3)
-with v1:
-    render_metric_card(
-        "Vulnerability index",
-        f"{selected_city_snapshot['vulnerability_index']:.1f}",
-        "City-level profile",
+vd1, vd2 = st.columns(2)
+with vd1:
+    drivers_html = "".join(
+        f"""
+        <div style="display:flex;align-items:flex-start;gap:0.6rem;padding:0.55rem 0;border-bottom:1px solid #f1f5f9;">
+            <span style="color:#f97316;font-size:1rem;margin-top:0.05rem;">⚠</span>
+            <span style="font-size:0.93rem;color:#1e293b;line-height:1.4;">{item}</span>
+        </div>
+        """
+        for item in vulnerability_drivers
     )
-with v2:
-    render_metric_card(
-        "Vulnerability band",
-        selected_city_snapshot["vulnerability_band"],
-        "Human-impact context",
-    )
-with v3:
-    render_metric_card(
-        "Impact-adjusted priority",
-        f"{selected_city_snapshot['impact_adjusted_priority']:.1f}",
-        "Heat + escalation + vulnerability",
-    )
-
-vv1, vv2 = st.columns(2)
-with vv1:
-    render_insight_list_card(
-        "Main vulnerability drivers",
-        selected_city_vulnerability_drivers,
-        "Key structural factors that can increase heat impact in this city.",
+    st.markdown(
+        f"""
+        <div class="card">
+            <div style="font-size:0.95rem;font-weight:700;color:#0f172a;margin-bottom:0.6rem;padding-bottom:0.5rem;border-bottom:2px solid #f1f5f9;">
+                Main vulnerability drivers
+            </div>
+            {drivers_html}
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
-with vv2:
-    render_insight_list_card(
-        "Vulnerability-sensitive recommendations",
-        selected_city_vulnerability_recommendations,
-        "Targeted actions that should accompany forecast and alert decisions.",
+with vd2:
+    recs_html = "".join(
+        f"""
+        <div style="display:flex;align-items:flex-start;gap:0.6rem;padding:0.55rem 0;border-bottom:1px solid #f1f5f9;">
+            <span style="color:#2E8B57;font-size:1rem;margin-top:0.05rem;">✓</span>
+            <span style="font-size:0.93rem;color:#1e293b;line-height:1.4;">{item}</span>
+        </div>
+        """
+        for item in vulnerability_recommendations
+    )
+    st.markdown(
+        f"""
+        <div class="card">
+            <div style="font-size:0.95rem;font-weight:700;color:#0f172a;margin-bottom:0.6rem;padding-bottom:0.5rem;border-bottom:2px solid #f1f5f9;">
+                Vulnerability-sensitive recommendations
+            </div>
+            {recs_html}
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
 st.divider()
 
-st.markdown('<div class="section-title">Recommended resources for current escalation signal</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-title">Refresh audit trail</div>', unsafe_allow_html=True)
 
-if recommended_resources_df.empty:
-    st.info("Nema preporučenih resource točaka za ovaj grad.")
+if not refresh_audit_log:
+    st.info("Audit trail je trenutno prazan. Pokreni refresh data da se generira zapis.")
 else:
-    rcols = st.columns(min(3, len(recommended_resources_df)))
+    audit_df = pd.DataFrame(refresh_audit_log)
+    if "timestamp_utc" in audit_df.columns:
+        audit_df["timestamp_utc"] = pd.to_datetime(audit_df["timestamp_utc"]).dt.strftime("%d.%m.%Y. %H:%M")
+    st.dataframe(audit_df, use_container_width=True, hide_index=True)
 
-    for i, (_, row) in enumerate(recommended_resources_df.iterrows()):
-        with rcols[i]:
-            st.markdown(
-                f"""
-                <div class="card">
-                    <div class="mini-title">{row.get('resource_type', 'Resource')}</div>
-                    <div class="big-city">{row.get('resource_name', 'Unknown')}</div>
-                    <div class="small-muted"><b>Adresa:</b> {row.get('address', 'N/A')}</div>
-                    <div class="small-muted"><b>Radno vrijeme:</b> {row.get('hours_weekday', 'N/A')}</div>
-                    <div class="small-muted"><b>Verified:</b> {row.get('verified_status', 'N/A')}</div>
-                    <div class="small-muted"><b>Water:</b> {row.get('water_available', 'N/A')}</div>
-                    <div class="small-muted"><b>Indoor cooling:</b> {row.get('indoor_cooling', 'N/A')}</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+st.divider()
 
-# ---------- Top cities ----------
 st.markdown('<div class="section-title">Top city risk snapshot</div>', unsafe_allow_html=True)
 
 top_cols = st.columns(min(3, len(ranked_cities_df)))
@@ -894,12 +1057,10 @@ for i, (_, row) in enumerate(ranked_cities_df.head(3).iterrows()):
                     <span class="status-pill" style="background:{risk_badge_color};">{row['risk_level']}</span>
                     <span class="status-pill" style="background:{escalation_badge_color};">{row['escalation_label_72h']}</span>
                 </div>
-                <div class="small-muted">Heat Risk Score: <b>{row['heat_risk_score']:.1f}</b></div>
                 <div class="small-muted">72h escalation prob.: <b>{row['escalation_probability_72h']:.2f}</b></div>
-                <div class="small-muted">Vulnerability: <b>{row['vulnerability_band']} ({row['vulnerability_index']:.1f})</b></div>
-                <div class="small-muted">Impact-adjusted priority: <b>{row['impact_adjusted_priority']:.1f}</b></div>
                 <div class="small-muted">Next 7d peak: <b>{row['next_7d_peak_level']} ({row['next_7d_peak_score']:.1f})</b></div>
                 <div class="small-muted">Readiness: <b>{row['readiness_status']}</b></div>
+                <div class="small-muted">Heat Risk Score today: <b>{row['heat_risk_score']:.1f}</b></div>
                 <div class="small-muted">Date: <b>{pd.to_datetime(row['date']).strftime('%d.%m.%Y.')}</b></div>
             </div>
             """,
@@ -912,17 +1073,14 @@ command_table_df = ranked_cities_df[
     [
         "city",
         "date",
-        "risk_level",
-        "heat_risk_score",
+        "readiness_status",
+        "escalation_label_72h",
+        "escalation_probability_72h",
         "next_7d_peak_level",
         "next_7d_peak_score",
         "high_risk_days",
-        "escalation_probability_72h",
-        "escalation_label_72h",
-        "vulnerability_index",
-        "vulnerability_band",
-        "impact_adjusted_priority",
-        "readiness_status",
+        "risk_level",
+        "heat_risk_score",
         "temp_max",
         "apparent_temp_max",
         "humidity_mean",
@@ -933,63 +1091,108 @@ st.dataframe(command_table_df, use_container_width=True, hide_index=True)
 
 st.divider()
 
-# ---------- Platform modules ----------
 st.markdown('<div class="section-title">Platform modules</div>', unsafe_allow_html=True)
 
-m1, m2, m3 = st.columns(3)
-with m1:
-    st.markdown(
-        """
-        <div class="cta-card">
-            <div class="mini-title">Operational monitoring</div>
-            <div class="big-city">Overview & History</div>
-            <div class="small-muted">
-                Povijesni trendovi, gradski rizik, sezonski obrasci i najkritičniji toplinski periodi.
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    st.page_link("pages/1_Overview.py", label="Open Overview", icon="📊")
-    st.page_link("pages/2_History.py", label="Open History", icon="🕘")
+modules = [
+    {
+        "category": "Operational Monitoring",
+        "icon": "📊",
+        "title": "Overview & History",
+        "description": "Povijesni trendovi, gradski rizik, sezonski obrasci i najkritičniji toplinski periodi.",
+        "color": "#3b82f6",
+        "links": [
+            ("pages/1_Overview.py", "📊", "Overview"),
+            ("pages/2_History.py", "🕘", "History"),
+        ],
+    },
+    {
+        "category": "AI / ML Intelligence",
+        "icon": "🧠",
+        "title": "Insights & Forecast",
+        "description": "Usporedba modela, confusion matrix, feature importance, threshold tuning i XAI analiza.",
+        "color": "#8b5cf6",
+        "links": [
+            ("pages/3_Insights.py", "🧠", "Insights"),
+            ("pages/4_Forecast.py", "🔮", "Forecast"),
+        ],
+    },
+    {
+        "category": "Decision Support",
+        "icon": "🚨",
+        "title": "Action Center & Alerts",
+        "description": "Forecast, readiness, operator actions, public advisory, alerting i export-ready daily briefing.",
+        "color": "#ef4444",
+        "links": [
+            ("pages/5_Action_Center.py", "🚨", "Action Center"),
+            ("pages/10_Alert_Center.py", "📢", "Alert Center"),
+        ],
+    },
+    {
+        "category": "Command & Control",
+        "icon": "🖥️",
+        "title": "Command Dashboard",
+        "description": "Operator cockpit, model consensus, city ranking i dispatch summary za sve gradove.",
+        "color": "#0f172a",
+        "links": [
+            ("pages/6_Command_Dashboard.py", "🖥️", "Command Dashboard"),
+        ],
+    },
+    {
+        "category": "Public & Resources",
+        "icon": "🌍",
+        "title": "Public Advisory & Map",
+        "description": "Javne preporuke za građane, turiste i ranjive grupe. Mapa resursa i cooling centara.",
+        "color": "#2E8B57",
+        "links": [
+            ("pages/8_Public_Advisory.py", "📣", "Public Advisory"),
+            ("pages/9_Resources_Map.py", "🗺️", "Resources Map"),
+        ],
+    },
+    {
+        "category": "Simulation & Research",
+        "icon": "⚡",
+        "title": "Stress Test & Methodology",
+        "description": "Ekstremni scenariji, what-if simulacija, stress report i metodološka dokumentacija.",
+        "color": "#E67E22",
+        "links": [
+            ("pages/12_Stress_Test.py", "⚡", "Stress Test"),
+            ("pages/7_Methodology_Research.py", "📚", "Methodology"),
+        ],
+    },
+]
 
-with m2:
-    st.markdown(
-        """
-        <div class="cta-card">
-            <div class="mini-title">AI / ML intelligence</div>
-            <div class="big-city">Insights</div>
-            <div class="small-muted">
-                Usporedba modela, confusion matrix, feature importance i analiza pogrešaka.
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    st.page_link("pages/3_Insights.py", label="Open Insights", icon="🧠")
+row1 = st.columns(3)
+row2 = st.columns(3)
+all_cols = row1 + row2
 
-with m3:
-    st.markdown(
-        """
-        <div class="cta-card">
-            <div class="mini-title">Decision support</div>
-            <div class="big-city">Forecast & Action Center</div>
-            <div class="small-muted">
-                ML forecast, scenario simulation, event risk check i executive operational brief.
+for col, mod in zip(all_cols, modules):
+    with col:
+        st.markdown(
+            f"""
+            <div class="module-card">
+                <div class="module-head" style="background:{mod['color']};">
+                    <span style="font-size:1.2rem;">{mod['icon']}</span>
+                    <span style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.07em;color:rgba(255,255,255,0.85);font-weight:700;">
+                        {mod['category']}
+                    </span>
+                </div>
+                <div class="module-body">
+                    <div style="font-size:1.1rem;font-weight:800;color:#0f172a;margin-bottom:0.4rem;">{mod['title']}</div>
+                    <div style="font-size:0.88rem;color:#64748b;line-height:1.55;">{mod['description']}</div>
+                </div>
             </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    st.page_link("pages/4_Forecast.py", label="Open Forecast", icon="🔮")
-    st.page_link("pages/5_Action_Center.py", label="Open Action Center", icon="🚨")
+            """,
+            unsafe_allow_html=True,
+        )
+        for page_path, icon, label in mod["links"]:
+            st.page_link(page_path, label=label, icon=icon)
+        st.markdown("<div style='margin-bottom:0.8rem;'></div>", unsafe_allow_html=True)
 
 st.divider()
 
-# ---------- Model summary ----------
 st.markdown('<div class="section-title">Model architecture summary</div>', unsafe_allow_html=True)
 
-model_summary_df = build_model_summary_table(metrics_v1, metrics_v2)
+model_summary_df = build_model_summary_table(metrics_v1, metrics_v2, metrics_v3)
 if not model_summary_df.empty:
     st.dataframe(model_summary_df, use_container_width=True, hide_index=True)
 else:
@@ -1002,8 +1205,9 @@ with c1:
         """
         <div class="card">
             <h4>Production model (v1)</h4>
-            <p>
-            Operativni multiclass model optimiziran za praktičnu procjenu razine toplinskog rizika.
+            <p style="color:#475569; line-height:1.7;">
+            Operativni multiclass model optimiziran za praktičnu procjenu razine toplinskog rizika
+            i dnevni decision-support rad platforme.
             </p>
         </div>
         """,
@@ -1015,9 +1219,9 @@ with c2:
         """
         <div class="card">
             <h4>Strict model (v2)</h4>
-            <p>
-            Metodološki stroža validacijska verzija bez oslanjanja na
-            <code>heat_risk_score*</code> featuree, važna za istraživačku ozbiljnost projekta.
+            <p style="color:#475569; line-height:1.7;">
+            Metodološki stroža validacijska verzija važna za istraživačku ozbiljnost projekta
+            i provjeru da sustav ne ovisi samo o shortcut signalima.
             </p>
         </div>
         """,
@@ -1029,7 +1233,7 @@ with c3:
         """
         <div class="card">
             <h4>Escalation model (v3)</h4>
-            <p>
+            <p style="color:#475569; line-height:1.7;">
             72h early-warning model koji procjenjuje vjerojatnost ulaska grada u
             ozbiljniji toplinski rizik unutar sljedeća tri dana.
             </p>
@@ -1040,66 +1244,69 @@ with c3:
 
 st.divider()
 
-# ---------- Value proposition ----------
 st.markdown('<div class="section-title">Who benefits from HeatSafe HR?</div>', unsafe_allow_html=True)
 
-col1, col2, col3 = st.columns(3)
-with col1:
+benefit1, benefit2, benefit3 = st.columns(3)
+
+with benefit1:
     st.markdown(
         """
         <div class="card">
-            <h4>🏙️ Gradovi i komunalne službe</h4>
-            <ul>
+            <h3 style="margin-bottom:0.55rem;">🏙️ Gradovi i komunalne službe</h3>
+            <p style="color:#475569; line-height:1.7; margin-bottom:0.8rem;">
+                HeatSafe HR pomaže gradovima da prije toplinskog udara ne reagiraju naslijepo,
+                nego da unaprijed vide gdje raste rizik, kada treba podići readiness i kako
+                prioritetizirati ranjive skupine, gradske resurse i operativne korake.
+            </p>
+            <ul style="color:#334155; line-height:1.75; padding-left:1.1rem;">
                 <li>rano upozorenje na rast toplinskog rizika</li>
-                <li>aktivacija preventivnih mjera</li>
-                <li>gradska koordinacija i readiness status</li>
+                <li>aktivacija preventivnih mjera prije vršnog opterećenja</li>
+                <li>gradska koordinacija kroz readiness, routing i briefing</li>
             </ul>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-with col2:
+with benefit2:
     st.markdown(
         """
         <div class="card">
-            <h4>🚑 Javne i hitne službe</h4>
-            <ul>
+            <h3 style="margin-bottom:0.55rem;">🚑 Javne i hitne službe</h3>
+            <p style="color:#475569; line-height:1.7; margin-bottom:0.8rem;">
+                Za civilnu zaštitu, hitne službe i zdravstveni sustav platforma djeluje kao
+                decision-support sloj: ne prikazuje samo prognozu, nego daje signal kada treba
+                pojačati pažnju, koje skupine su najizloženije i kako pripremiti operativni odgovor.
+            </p>
+            <ul style="color:#334155; line-height:1.75; padding-left:1.1rem;">
                 <li>pojačana pripravnost prije toplinskih epizoda</li>
-                <li>praćenje rizičnih dana i grupa</li>
-                <li>operativni brief i action items</li>
+                <li>praćenje rizičnih dana, gradova i vulnerabilnih skupina</li>
+                <li>operativni brief i konkretni action items za teren</li>
             </ul>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-with col3:
+with benefit3:
     st.markdown(
         """
         <div class="card">
-            <h4>🏖️ Turizam i događaji</h4>
-            <ul>
+            <h3 style="margin-bottom:0.55rem;">🏖️ Turizam, događaji i javnost</h3>
+            <p style="color:#475569; line-height:1.7; margin-bottom:0.8rem;">
+                U zemlji u kojoj ljetni mjeseci znače velik pritisak na turizam i javne prostore,
+                HeatSafe HR omogućuje sigurnije planiranje aktivnosti, bolju komunikaciju prema
+                gostima i građanima te jednostavnije prilagodbe rasporeda kod visokog toplinskog rizika.
+            </p>
+            <ul style="color:#334155; line-height:1.75; padding-left:1.1rem;">
                 <li>event risk check za aktivnosti na otvorenom</li>
                 <li>prilagodba rasporeda i komunikacije prema gostima</li>
-                <li>scenario analiza i sigurnosne preporuke</li>
+                <li>jasne javne preporuke na hrvatskom i engleskom jeziku</li>
             </ul>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-st.divider()
+st.markdown("")
 
-# ---------- Final note ----------
-st.markdown(
-    """
-    <div class="soft-note">
-        <b>Current product status:</b> HeatSafe HR sada kombinira data pipeline,
-        multiclass AI/ML procjenu rizika, 72h escalation early-warning model,
-        forecast simulation i operativni alerting u jedinstven alat
-        za toplinski rizik u hrvatskim gradovima.
-    </div>
-    """,
-    unsafe_allow_html=True,
-)

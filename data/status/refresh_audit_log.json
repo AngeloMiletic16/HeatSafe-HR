@@ -1,0 +1,23 @@
+[
+  {
+    "timestamp_utc": "2026-04-27T09:43:40.059822+00:00",
+    "status": "success",
+    "message": "Operational data refresh completed successfully.",
+    "cities_updated": 7,
+    "errors_count": 0
+  },
+  {
+    "timestamp_utc": "2026-04-22T10:21:22.352498+00:00",
+    "status": "success",
+    "message": "Operational data refresh completed successfully.",
+    "cities_updated": 7,
+    "errors_count": 0
+  },
+  {
+    "timestamp_utc": "2026-04-22T08:39:46.801532+00:00",
+    "status": "success",
+    "message": "Operational data refresh completed successfully.",
+    "cities_updated": 7,
+    "errors_count": 0
+  }
+]

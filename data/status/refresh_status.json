@@ -1,0 +1,16 @@
+{
+  "last_refresh_utc": "2026-04-27T09:43:40.059822+00:00",
+  "status": "success",
+  "message": "Operational data refresh completed successfully.",
+  "cities_updated": 7,
+  "cities": [
+    "Dubrovnik",
+    "Osijek",
+    "Rijeka",
+    "Split",
+    "Šibenik",
+    "Zadar",
+    "Zagreb"
+  ],
+  "errors": []
+}

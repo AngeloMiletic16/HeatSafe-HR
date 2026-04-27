@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 import plotly.express as px
@@ -30,6 +31,7 @@ from src.resource_routing_engine import (
     build_top_dispatch_summary,
     recommend_dispatch_resources,
 )
+from src.sidebar import render_app_sidebar
 from src.vulnerability_engine import (
     build_impact_adjusted_priority,
     build_vulnerability_recommendations,
@@ -39,6 +41,17 @@ from src.vulnerability_engine import (
 from src.xai_engine import explain_escalation_row
 
 st.set_page_config(page_title="Stress Test", page_icon="🔥", layout="wide")
+
+st.markdown(
+    """
+    <style>
+        [data-testid="stSidebarNav"] {
+            display: none;
+        }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 CITIES = [
     "Dubrovnik",
@@ -77,7 +90,6 @@ CONFIDENCE_COLOR_MAP = {
     "Low": "#C0392B",
 }
 
-
 st.markdown(
     """
     <style>
@@ -90,7 +102,7 @@ st.markdown(
     .page-hero {
         background: linear-gradient(135deg, #0f172a 0%, #1e293b 55%, #7c2d12 100%);
         border-radius: 22px;
-        padding: 1.35rem 1.5rem 1.2rem 1.5rem;
+        padding: 1.4rem 1.55rem 1.2rem 1.55rem;
         color: white;
         margin-bottom: 1rem;
         border: 1px solid rgba(255,255,255,0.08);
@@ -104,9 +116,37 @@ st.markdown(
     }
 
     .page-hero-subtitle {
-        font-size: 0.98rem;
-        line-height: 1.6;
+        font-size: 0.99rem;
+        line-height: 1.62;
         opacity: 0.95;
+        max-width: 1080px;
+    }
+
+    .chip-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin-top: 0.8rem;
+    }
+
+    .chip {
+        display: inline-block;
+        padding: 0.36rem 0.72rem;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.10);
+        color: white;
+        font-size: 0.86rem;
+        font-weight: 600;
+        border: 1px solid rgba(255,255,255,0.12);
+    }
+
+    .control-card {
+        background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+        border: 1px solid rgba(15,23,42,0.08);
+        border-radius: 18px;
+        padding: 1rem 1rem 0.95rem 1rem;
+        box-shadow: 0 8px 24px rgba(15,23,42,0.06);
+        margin-bottom: 1rem;
     }
 
     .metric-card {
@@ -139,6 +179,7 @@ st.markdown(
     .metric-sub {
         font-size: 0.88rem;
         color: #64748b;
+        line-height: 1.5;
     }
 
     .soft-panel {
@@ -159,7 +200,7 @@ st.markdown(
 
     .panel-text {
         color: #334155;
-        line-height: 1.65;
+        line-height: 1.68;
         font-size: 0.95rem;
     }
 
@@ -167,8 +208,15 @@ st.markdown(
         margin: 0;
         padding-left: 1.1rem;
         color: #334155;
-        line-height: 1.7;
+        line-height: 1.72;
         font-size: 0.95rem;
+    }
+
+    .section-title {
+        font-size: 1.35rem;
+        font-weight: 800;
+        color: #0f172a;
+        margin: 0.35rem 0 0.85rem 0;
     }
 
     .status-pill {
@@ -190,7 +238,7 @@ st.markdown(
         color: #0f172a;
         margin-top: 0.6rem;
         margin-bottom: 0.8rem;
-        line-height: 1.6;
+        line-height: 1.65;
     }
 
     .warning-box {
@@ -201,7 +249,17 @@ st.markdown(
         color: #7c2d12;
         margin-top: 0.6rem;
         margin-bottom: 0.8rem;
-        line-height: 1.6;
+        line-height: 1.65;
+    }
+
+    .summary-card {
+        background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+        border: 1px solid rgba(15,23,42,0.08);
+        border-radius: 18px;
+        padding: 1rem 1.05rem;
+        box-shadow: 0 8px 24px rgba(15,23,42,0.06);
+        color: #334155;
+        line-height: 1.7;
     }
 
     div.stDownloadButton > button {
@@ -214,10 +272,51 @@ st.markdown(
         color: white;
         box-shadow: 0 8px 20px rgba(220, 38, 38, 0.22);
     }
+
+    div.stDownloadButton > button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 10px 24px rgba(220, 38, 38, 0.28);
+        background: linear-gradient(135deg, #1e293b 0%, #ef4444 100%);
+        color: white;
+    }
+
+    div[data-baseweb="tab-list"] {
+        gap: 1.2rem;
+        margin-top: 0.8rem;
+        margin-bottom: 0.8rem;
+        flex-wrap: wrap;
+    }
+
+    button[data-baseweb="tab"] {
+        border-radius: 12px 12px 0 0;
+        font-weight: 700;
+    }
+
+    .stDataFrame, .stPlotlyChart {
+        border-radius: 14px;
+    }
     </style>
     """,
     unsafe_allow_html=True,
 )
+
+
+def safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        if pd.isna(value):
+            return default
+        return float(value)
+    except Exception:
+        return default
+
+
+def format_float(value: Any, decimals: int = 1, default: str = "N/A") -> str:
+    try:
+        if pd.isna(value):
+            return default
+        return f"{float(value):.{decimals}f}"
+    except Exception:
+        return default
 
 
 def badge(text: str, color: str) -> None:
@@ -279,10 +378,6 @@ def risk_level_from_score(score: float) -> str:
     if score >= 25:
         return "Umjeren"
     return "Nizak"
-
-
-def readiness_from_level(level: str) -> str:
-    return READINESS_MAP.get(level, "Monitoring")
 
 
 def clamp_0_100(value: float) -> float:
@@ -444,6 +539,9 @@ def build_stress_brief(
     persistence_days: int,
     power_outage: bool,
 ) -> str:
+    xai_probability = xai_summary.get("probability")
+    xai_probability_text = format_float(xai_probability, decimals=2)
+
     return f"""HEATSAFE HR — STRESS TEST BRIEF
 
 City: {city}
@@ -479,7 +577,7 @@ VULNERABILITY
 
 XAI SUMMARY
 - Method: {xai_summary.get("method", "N/A")}
-- Probability: {xai_summary.get("probability", 0):.2f}
+- Probability: {xai_probability_text}
 - Label: {xai_summary.get("label", "N/A")}
 - Summary: {xai_summary.get("explanation_text", "N/A")}
 
@@ -493,9 +591,16 @@ st.markdown(
     <div class="page-hero">
         <div class="page-hero-title">🔥 Stress Test Simulator</div>
         <div class="page-hero-subtitle">
-            What-if simulacija za ekstremne toplinske scenarije. Ova stranica služi za testiranje
-            kako se sustav ponaša kad grad uđe u sintetički “pakao na zemlji”: ekstremna temperatura,
-            višednevna izloženost, niski vjetar i potencijalno degradirana infrastruktura.
+            What-if simulacija za ekstremne toplinske scenarije. Ova stranica testira kako se sustav ponaša
+            kada grad uđe u sintetički “worst-case” režim: ekstremna temperatura, višednevna izloženost,
+            slab vjetar i potencijalno degradirana infrastruktura.
+        </div>
+        <div class="chip-row">
+            <span class="chip">Stress Simulation</span>
+            <span class="chip">Operational Readiness</span>
+            <span class="chip">Reliability Layer</span>
+            <span class="chip">Dispatch Support</span>
+            <span class="chip">What-If Analysis</span>
         </div>
     </div>
     """,
@@ -505,7 +610,11 @@ st.markdown(
 default_city = st.session_state.get("selected_city", DEFAULT_CITY)
 default_index = CITIES.index(default_city) if default_city in CITIES else 0
 
-c1, c2 = st.columns(2)
+st.markdown('<div class="section-title">Stress scenario control panel</div>', unsafe_allow_html=True)
+
+st.markdown('<div class="control-card">', unsafe_allow_html=True)
+
+c1, c2 = st.columns([1.2, 1])
 with c1:
     selected_city = st.selectbox("Odaberi grad", CITIES, index=default_index)
     st.session_state.selected_city = selected_city
@@ -528,17 +637,23 @@ with s5:
 with s6:
     persistence_days = st.slider("Persistence days", 1, 7, 4, 1)
 
-baseline_df = make_ml_forecast(selected_city)
-stress_df = apply_stress_overrides(
-    forecast_df=baseline_df,
-    forced_temp_max=float(forced_temp_max),
-    forced_temp_min=float(forced_temp_min),
-    forced_apparent_extra=float(forced_apparent_extra),
-    forced_humidity=float(forced_humidity),
-    forced_wind=float(forced_wind),
-    persistence_days=int(persistence_days),
-    power_outage=power_outage,
-)
+st.markdown("</div>", unsafe_allow_html=True)
+
+try:
+    baseline_df = make_ml_forecast(selected_city)
+    stress_df = apply_stress_overrides(
+        forecast_df=baseline_df,
+        forced_temp_max=float(forced_temp_max),
+        forced_temp_min=float(forced_temp_min),
+        forced_apparent_extra=float(forced_apparent_extra),
+        forced_humidity=float(forced_humidity),
+        forced_wind=float(forced_wind),
+        persistence_days=int(persistence_days),
+        power_outage=power_outage,
+    )
+except Exception as exc:
+    st.error(f"Stress Test nije dostupan: {exc}")
+    st.stop()
 
 baseline_summary = build_city_readiness_summary(selected_city, baseline_df)
 stress_summary = build_city_readiness_summary(selected_city, stress_df)
@@ -551,7 +666,7 @@ stress_escalation_df = predict_escalation_from_features(stress_first_row_df)
 stress_escalation_row = stress_escalation_df.iloc[0]
 
 v3_label = str(stress_escalation_row["escalation_label_72h"])
-v3_probability = float(stress_escalation_row["escalation_probability_72h"])
+v3_probability = safe_float(stress_escalation_row["escalation_probability_72h"])
 
 stress_consensus = build_stress_consensus(
     stress_first_row=stress_first_row_df.iloc[0],
@@ -561,19 +676,29 @@ stress_consensus = build_stress_consensus(
     persistence_days=int(persistence_days),
 )
 
+render_app_sidebar(
+    selected_city=selected_city,
+    risk_level=str(stress_first_row_df.iloc[0].get("heuristic_risk_level", "N/A")),
+    readiness_status=stress_summary["readiness_status"],
+    escalation_label=v3_label,
+    escalation_probability=v3_probability,
+)
+
 vulnerability_snapshot = get_city_vulnerability_snapshot(selected_city)
 vulnerability_drivers = identify_vulnerability_drivers(vulnerability_snapshot)
 vulnerability_recommendations = build_vulnerability_recommendations(vulnerability_snapshot)
 
 impact_adjusted_priority = build_impact_adjusted_priority(
-    next_7d_peak_score=float(stress_summary["next_7d_peak_score"]),
+    next_7d_peak_score=safe_float(stress_summary["next_7d_peak_score"]),
     escalation_probability_72h=v3_probability,
-    vulnerability_index=float(vulnerability_snapshot["vulnerability_index"]),
+    vulnerability_index=safe_float(vulnerability_snapshot["vulnerability_index"]),
 )
 
 priority_groups = identify_priority_groups(stress_summary, v3_label)
 primary_impacts = identify_primary_impacts(stress_summary, v3_label)
 operational_triggers = build_operational_triggers(stress_summary, v3_label)
+sector_actions = build_sector_actions(stress_summary["next_7d_peak_level"])
+escalation_plan = build_escalation_plan(stress_summary["next_7d_peak_level"])
 
 dispatch_df = recommend_dispatch_resources(
     city=selected_city,
@@ -581,7 +706,12 @@ dispatch_df = recommend_dispatch_resources(
     priority_groups=priority_groups,
     top_n=5,
 )
-top_dispatch_summary = build_top_dispatch_summary(dispatch_df)
+
+top_dispatch_summary = (
+    build_top_dispatch_summary(dispatch_df)
+    if not dispatch_df.empty
+    else "No dispatch resource recommendation available for this stress scenario."
+)
 
 xai_summary = explain_escalation_row(stress_first_row_df)
 
@@ -601,15 +731,19 @@ stress_brief = build_stress_brief(
     power_outage=power_outage,
 )
 
+delta_peak = safe_float(stress_summary["next_7d_peak_score"]) - safe_float(baseline_summary["next_7d_peak_score"])
+baseline_peak_date = pd.to_datetime(baseline_summary["next_7d_peak_date"]).strftime("%d.%m.%Y.")
+stress_peak_date = pd.to_datetime(stress_summary["next_7d_peak_date"]).strftime("%d.%m.%Y.")
+
 k1, k2, k3, k4, k5 = st.columns(5)
 with k1:
     metric_card("Stress readiness", stress_summary["readiness_status"], "Synthetic extreme mode")
 with k2:
-    metric_card("Stress peak", stress_summary["next_7d_peak_level"], f"{stress_summary['next_7d_peak_score']:.1f}")
+    metric_card("Stress peak", stress_summary["next_7d_peak_level"], f"{safe_float(stress_summary['next_7d_peak_score']):.1f}")
 with k3:
-    metric_card("v3 escalation", v3_label, f"{v3_probability:.2f}")
+    metric_card("v3 escalation", v3_label, f"{format_float(v3_probability, 2)}")
 with k4:
-    metric_card("Impact priority", f"{impact_adjusted_priority:.1f}", vulnerability_snapshot["vulnerability_band"])
+    metric_card("Impact priority", format_float(impact_adjusted_priority, 1), vulnerability_snapshot["vulnerability_band"])
 with k5:
     metric_card(
         "Operator review",
@@ -618,18 +752,35 @@ with k5:
     )
 
 badge(stress_summary["readiness_status"], readiness_to_color(stress_summary["readiness_status"]))
-badge(stress_consensus["consensus_status"], CONSENSUS_COLOR_MAP.get(stress_consensus["consensus_status"], "#64748b"))
-badge(stress_consensus["confidence_level"], CONFIDENCE_COLOR_MAP.get(stress_consensus["confidence_level"], "#64748b"))
-
-delta_peak = float(stress_summary["next_7d_peak_score"] - baseline_summary["next_7d_peak_score"])
+badge(
+    stress_consensus["consensus_status"],
+    CONSENSUS_COLOR_MAP.get(stress_consensus["consensus_status"], "#64748b"),
+)
+badge(
+    stress_consensus["confidence_level"],
+    CONFIDENCE_COLOR_MAP.get(stress_consensus["confidence_level"], "#64748b"),
+)
 
 st.markdown(
     f"""
     <div class="warning-box">
-        <b>Stress-test interpretation:</b> Za grad <b>{selected_city}</b> sintetički scenarij diže
+        <b>Stress-test interpretation:</b> za grad <b>{selected_city}</b> sintetički scenarij podiže
         7-dnevni peak score za <b>{delta_peak:+.1f}</b> u odnosu na baseline.
-        v3 escalation signal je <b>{v3_label}</b>, a consensus status je
-        <b>{stress_consensus["consensus_status"]}</b>.
+        Aktivni readiness prelazi iz <b>{baseline_summary["readiness_status"]}</b> u
+        <b>{stress_summary["readiness_status"]}</b>, dok je v3 escalation signal
+        <b>{v3_label}</b> uz probability <b>{format_float(v3_probability, 2)}</b>.
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+st.markdown(
+    f"""
+    <div class="summary-card">
+        Stress Test stranica nije samo vizualni eksperiment, nego <b>operativni robustness layer</b>.
+        Ona pokazuje kako HeatSafe HR reagira kada se za <b>{selected_city}</b> umjetno uvedu ekstremniji
+        ljetni uvjeti, višednevna perzistencija i eventualno infrastrukturno pogoršanje.
+        U tom režimu platforma i dalje mora dati smislen readiness, dispatch, vulnerability i XAI output.
     </div>
     """,
     unsafe_allow_html=True,
@@ -645,7 +796,7 @@ tabs = st.tabs(
 )
 
 with tabs[0]:
-    st.markdown("## Baseline vs stress timeline")
+    st.markdown("### Baseline vs stress timeline")
 
     baseline_plot = baseline_df[["date", "heuristic_risk_score"]].copy()
     baseline_plot["scenario"] = "Baseline"
@@ -654,7 +805,6 @@ with tabs[0]:
     stress_plot["scenario"] = "Stress test"
 
     combined_plot = pd.concat([baseline_plot, stress_plot], ignore_index=True)
-    combined_plot["date"] = pd.to_datetime(combined_plot["date"]).dt.strftime("%d.%m.%Y.")
 
     fig = px.line(
         combined_plot,
@@ -677,11 +827,11 @@ with tabs[0]:
 
     a1, a2, a3 = st.columns(3)
     with a1:
-        metric_card("Baseline readiness", baseline_summary["readiness_status"], baseline_summary["next_7d_peak_level"])
+        metric_card("Baseline readiness", baseline_summary["readiness_status"], f"Peak: {baseline_summary['next_7d_peak_level']}")
     with a2:
-        metric_card("Stress readiness", stress_summary["readiness_status"], stress_summary["next_7d_peak_level"])
+        metric_card("Stress readiness", stress_summary["readiness_status"], f"Peak: {stress_summary['next_7d_peak_level']}")
     with a3:
-        metric_card("Peak delta", f"{delta_peak:+.1f}", "Stress minus baseline")
+        metric_card("Peak delta", f"{delta_peak:+.1f}", f"{baseline_peak_date} → {stress_peak_date}")
 
     i1, i2, i3 = st.columns(3)
     with i1:
@@ -690,6 +840,15 @@ with tabs[0]:
         render_list_card("Priority groups", priority_groups)
     with i3:
         render_list_card("Operational triggers", operational_triggers)
+
+    st.markdown("### Sector actions under stress")
+    sa1, sa2, sa3 = st.columns(3)
+    with sa1:
+        render_list_card("Za grad", sector_actions["city"])
+    with sa2:
+        render_list_card("Za javne službe", sector_actions["services"])
+    with sa3:
+        render_list_card("Za turizam", sector_actions["tourism"])
 
     stress_day_table = stress_df[
         [
@@ -706,15 +865,25 @@ with tabs[0]:
     st.dataframe(stress_day_table, use_container_width=True, hide_index=True)
 
 with tabs[1]:
-    st.markdown("## Dispatch & response layer")
+    st.markdown("### Dispatch & response layer")
+
+    impact_band = impact_band_from_peak(stress_summary["next_7d_peak_level"], v3_label)
 
     d1, d2, d3 = st.columns(3)
     with d1:
-        metric_card("Impact band", impact_band_from_peak(stress_summary["next_7d_peak_level"], v3_label), "Stress severity")
+        metric_card("Impact band", impact_band, "Stress severity")
     with d2:
-        metric_card("Top dispatch", dispatch_df.iloc[0]["resource_name"] if not dispatch_df.empty else "N/A", "Best operational route")
+        metric_card(
+            "Top dispatch",
+            dispatch_df.iloc[0]["resource_name"] if not dispatch_df.empty else "N/A",
+            "Best operational route",
+        )
     with d3:
-        metric_card("Dispatch score", f"{dispatch_df.iloc[0]['dispatch_score']:.1f}" if not dispatch_df.empty else "N/A", "Top ranked point")
+        metric_card(
+            "Dispatch score",
+            format_float(dispatch_df.iloc[0]["dispatch_score"], 1) if not dispatch_df.empty else "N/A",
+            "Top ranked point",
+        )
 
     st.info(top_dispatch_summary)
 
@@ -723,6 +892,15 @@ with tabs[1]:
         render_list_card("Main vulnerability drivers", vulnerability_drivers)
     with vd2:
         render_list_card("Vulnerability-sensitive recommendations", vulnerability_recommendations)
+
+    st.markdown("### Escalation logic under stress")
+    e1, e2, e3 = st.columns(3)
+    with e1:
+        render_list_card("Što napraviti odmah", escalation_plan["immediately"])
+    with e2:
+        render_list_card("Što napraviti u 24h", escalation_plan["within_24h"])
+    with e3:
+        render_list_card("Što napraviti u 72h", escalation_plan["within_72h"])
 
     if dispatch_df.empty:
         st.info("Nema dispatch resource preporuka za ovaj grad.")
@@ -747,13 +925,13 @@ with tabs[1]:
         st.dataframe(dispatch_display_df, use_container_width=True, hide_index=True)
 
 with tabs[2]:
-    st.markdown("## Reliability & XAI under stress")
+    st.markdown("### Reliability & XAI under stress")
 
     r1, r2, r3 = st.columns(3)
     with r1:
         metric_card("Synthetic v1 signal", stress_consensus["v1_signal"], "Stress-adjusted risk")
     with r2:
-        metric_card("v3 signal", stress_consensus["v3_signal"], f"{v3_probability:.2f}")
+        metric_card("v3 signal", stress_consensus["v3_signal"], format_float(v3_probability, 2))
     with r3:
         metric_card("Consensus", stress_consensus["consensus_status"], stress_consensus["confidence_level"])
 
@@ -773,7 +951,7 @@ with tabs[2]:
             "Stress XAI summary",
             f"""
             <b>Method:</b> {xai_summary.get("method", "N/A")}<br>
-            <b>Probability:</b> {xai_summary.get("probability", 0):.2f}<br>
+            <b>Probability:</b> {format_float(xai_summary.get("probability"), 2)}<br>
             <b>Label:</b> {xai_summary.get("label", "N/A")}<br>
             <b>Explanation:</b> {xai_summary.get("explanation_text", "N/A")}
             """,
@@ -803,7 +981,7 @@ with tabs[2]:
         st.success("Stress scenario signal is usable without immediate major uncertainty warning.")
 
 with tabs[3]:
-    st.markdown("## Stress report")
+    st.markdown("### Stress report")
 
     st.code(stress_brief, language="text")
 
@@ -839,3 +1017,14 @@ with tabs[3]:
             use_container_width=True,
             key=f"dl_stress_csv_{selected_city}",
         )
+
+st.markdown(
+    """
+    <div class="note-box">
+        <b>Why this page matters:</b> Stress Test dodaje pravi natjecateljski i istraživački “wow faktor”.
+        On pokazuje da HeatSafe HR ne služi samo za pasivno promatranje forecasta, nego i za aktivno
+        testiranje robusnosti sustava pod ekstremnim uvjetima, uz readiness, dispatch, reliability i XAI sloj.
+    </div>
+    """,
+    unsafe_allow_html=True,
+)

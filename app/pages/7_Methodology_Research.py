@@ -12,6 +12,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
+from src.config import DEFAULT_CITY
+from src.sidebar import render_app_sidebar
+
 MODELS_DIR = PROJECT_ROOT / "data" / "models"
 OUTPUTS_DIR = PROJECT_ROOT / "outputs"
 
@@ -24,9 +27,22 @@ FEATURES_V2_PATH = OUTPUTS_DIR / "model_analysis_strict" / "feature_importance_s
 ANALYSIS_V1_PATH = OUTPUTS_DIR / "model_analysis" / "analysis_summary.json"
 ANALYSIS_V2_PATH = OUTPUTS_DIR / "model_analysis_strict" / "analysis_summary_strict.json"
 
+st.set_page_config(
+    page_title="Methodology & Research",
+    page_icon="🧪",
+    layout="wide",
+)
 
-st.set_page_config(page_title="Methodology & Research", page_icon="🧪", layout="wide")
-
+st.markdown(
+    """
+    <style>
+        [data-testid="stSidebarNav"] {
+            display: none;
+        }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 st.markdown(
     """
@@ -34,13 +50,13 @@ st.markdown(
     .block-container {
         padding-top: 1.6rem;
         padding-bottom: 2rem;
-        max-width: 1350px;
+        max-width: 1380px;
     }
 
     .page-hero {
         background: linear-gradient(135deg, #0f172a 0%, #1e293b 55%, #0b3b2e 100%);
         border-radius: 22px;
-        padding: 1.35rem 1.5rem 1.2rem 1.5rem;
+        padding: 1.45rem 1.6rem 1.25rem 1.6rem;
         color: white;
         margin-bottom: 1rem;
         border: 1px solid rgba(255,255,255,0.08);
@@ -48,15 +64,67 @@ st.markdown(
     }
 
     .page-hero-title {
-        font-size: 2rem;
+        font-size: 2.05rem;
         font-weight: 800;
         margin-bottom: 0.35rem;
     }
 
     .page-hero-subtitle {
-        font-size: 0.98rem;
-        line-height: 1.55;
+        font-size: 1rem;
+        line-height: 1.62;
         opacity: 0.95;
+        max-width: 1100px;
+    }
+
+    .chip-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin-top: 0.9rem;
+    }
+
+    .chip {
+        display: inline-block;
+        padding: 0.36rem 0.7rem;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.10);
+        color: white;
+        font-size: 0.86rem;
+        font-weight: 600;
+        border: 1px solid rgba(255,255,255,0.12);
+    }
+
+    .metric-card {
+        background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+        border: 1px solid rgba(15,23,42,0.08);
+        border-radius: 18px;
+        padding: 0.95rem 1rem;
+        box-shadow: 0 8px 24px rgba(15,23,42,0.06);
+        min-height: 112px;
+    }
+
+    .metric-label {
+        font-size: 0.8rem;
+        color: #64748b;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        margin-bottom: 0.35rem;
+    }
+
+    .metric-value {
+        font-size: 1.75rem;
+        font-weight: 800;
+        color: #0f172a;
+        line-height: 1.15;
+        margin-bottom: 0.15rem;
+        word-break: break-word;
+    }
+
+    .metric-sub {
+        font-size: 0.88rem;
+        color: #64748b;
+        line-height: 1.55;
     }
 
     .soft-panel {
@@ -77,47 +145,15 @@ st.markdown(
 
     .panel-text {
         color: #334155;
-        line-height: 1.65;
+        line-height: 1.7;
         font-size: 0.95rem;
     }
 
-    .metric-card {
-        background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
-        border: 1px solid rgba(15,23,42,0.08);
-        border-radius: 18px;
-        padding: 0.95rem 1rem;
-        box-shadow: 0 8px 24px rgba(15,23,42,0.06);
-        min-height: 110px;
-    }
-
-    .metric-label {
-        font-size: 0.78rem;
-        color: #64748b;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.03em;
-        margin-bottom: 0.4rem;
-    }
-
-    .metric-value {
-        font-size: 1.35rem;
-        font-weight: 800;
-        color: #0f172a;
-        line-height: 1.2;
-        margin-bottom: 0.2rem;
-        word-break: break-word;
-    }
-
-    .metric-sub {
-        font-size: 0.88rem;
-        color: #64748b;
-    }
-
     .section-title {
-        font-size: 1.25rem;
+        font-size: 1.36rem;
         font-weight: 800;
         color: #0f172a;
-        margin: 0.25rem 0 0.8rem 0;
+        margin: 0.3rem 0 0.85rem 0;
     }
 
     .note-box {
@@ -127,6 +163,7 @@ st.markdown(
         padding: 0.95rem 1rem;
         color: #0f172a;
         margin: 0.7rem 0 1rem 0;
+        line-height: 1.65;
     }
 
     .warning-box {
@@ -136,12 +173,57 @@ st.markdown(
         padding: 0.95rem 1rem;
         color: #7c2d12;
         margin: 0.7rem 0 1rem 0;
+        line-height: 1.65;
+    }
+
+    .summary-card {
+        background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+        border: 1px solid rgba(15,23,42,0.08);
+        border-radius: 20px;
+        padding: 1.15rem 1.2rem;
+        box-shadow: 0 8px 24px rgba(15,23,42,0.06);
+        color: #334155;
+        line-height: 1.75;
+    }
+
+    .summary-card p {
+        margin: 0 0 0.9rem 0;
+    }
+
+    .summary-card p:last-child {
+        margin-bottom: 0;
+    }
+
+    .mini-grid-card {
+        background: #ffffff;
+        border: 1px solid rgba(15,23,42,0.08);
+        border-radius: 18px;
+        padding: 1rem;
+        box-shadow: 0 8px 24px rgba(15,23,42,0.06);
+        height: 100%;
+    }
+
+    .mini-grid-title {
+        font-size: 1.02rem;
+        font-weight: 800;
+        color: #0f172a;
+        margin-bottom: 0.45rem;
+    }
+
+    .mini-grid-text {
+        color: #475569;
+        font-size: 0.93rem;
+        line-height: 1.65;
+    }
+
+    .stDataFrame, .stPlotlyChart {
+        border-radius: 14px;
     }
 
     div[data-baseweb="tab-list"] {
-        gap: 1.4rem;
-        margin-top: 1rem;
-        margin-bottom: 1rem;
+        gap: 1.15rem;
+        margin-top: 0.95rem;
+        margin-bottom: 0.85rem;
         flex-wrap: wrap;
     }
 
@@ -149,7 +231,7 @@ st.markdown(
         border-radius: 12px 12px 0 0;
         font-weight: 700;
         padding: 0.55rem 0.9rem;
-        margin-right: 0.25rem;
+        margin-right: 0.15rem;
     }
 
     div[data-baseweb="tab-panel"] {
@@ -201,6 +283,15 @@ def load_csv_if_exists(path: Path) -> pd.DataFrame:
     return pd.read_csv(path)
 
 
+def safe_metric(metrics_json: dict, best_model_name: str, metric_name: str):
+    if not isinstance(metrics_json, dict):
+        return None
+    best_metrics = metrics_json.get(best_model_name, {})
+    if not isinstance(best_metrics, dict):
+        return None
+    return best_metrics.get(metric_name)
+
+
 def extract_best_metrics(metrics_json: dict) -> dict:
     if not metrics_json:
         return {}
@@ -209,12 +300,11 @@ def extract_best_metrics(metrics_json: dict) -> dict:
     if not best_model_name:
         return {}
 
-    best_metrics = metrics_json.get(best_model_name, {})
     return {
         "best_model": best_model_name,
-        "accuracy": best_metrics.get("accuracy"),
-        "macro_f1": best_metrics.get("macro_f1"),
-        "weighted_f1": best_metrics.get("weighted_f1"),
+        "accuracy": safe_metric(metrics_json, best_model_name, "accuracy"),
+        "macro_f1": safe_metric(metrics_json, best_model_name, "macro_f1"),
+        "weighted_f1": safe_metric(metrics_json, best_model_name, "weighted_f1"),
     }
 
 
@@ -243,14 +333,19 @@ def build_model_comparison_df(v1: dict, v2: dict) -> pd.DataFrame:
             }
         )
 
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    for col in ["Accuracy", "Macro F1", "Weighted F1"]:
+        if col in df.columns:
+            df[col] = df[col].apply(lambda x: round(float(x), 3) if pd.notna(x) else None)
+    return df
 
 
 def build_feature_chart(df: pd.DataFrame, title: str, top_n: int = 12):
-    if df.empty:
+    if df.empty or "feature" not in df.columns or "importance" not in df.columns:
         return None
 
     top_df = df.head(top_n).copy().sort_values("importance", ascending=True)
+
     fig = px.bar(
         top_df,
         x="importance",
@@ -272,6 +367,20 @@ def build_feature_chart(df: pd.DataFrame, title: str, top_n: int = 12):
     return fig
 
 
+def fmt_metric(value) -> str:
+    if pd.isna(value) or value is None:
+        return "N/A"
+    try:
+        return f"{float(value):.3f}"
+    except Exception:
+        return str(value)
+
+
+selected_city = st.session_state.get("selected_city", DEFAULT_CITY)
+st.session_state.selected_city = selected_city
+
+render_app_sidebar(selected_city=selected_city)
+
 metrics_v1_raw = load_json_if_exists(METRICS_V1_PATH)
 metrics_v2_raw = load_json_if_exists(METRICS_V2_PATH)
 
@@ -291,8 +400,16 @@ st.markdown(
     <div class="page-hero">
         <div class="page-hero-title">🧪 Methodology / Research</div>
         <div class="page-hero-subtitle">
-            Ova stranica dokumentira istraživačku i metodološku osnovu sustava HeatSafe HR:
-            podatkovni pipeline, feature engineering, modele, validaciju, ograničenja i smjerove daljnjeg razvoja.
+            Ova stranica prikazuje metodološku osnovu sustava HeatSafe HR: kako su podaci pripremljeni,
+            kako su modeli validirani, zašto postoje production i strict varijanta te kako projekt
+            balansira operativnu korisnost, interpretabilnost i istraživačku ozbiljnost.
+        </div>
+        <div class="chip-row">
+            <span class="chip">Applied AI / ML</span>
+            <span class="chip">Climate Risk</span>
+            <span class="chip">Smart City Research</span>
+            <span class="chip">Validation</span>
+            <span class="chip">Decision Support</span>
         </div>
     </div>
     """,
@@ -304,13 +421,13 @@ with k1:
     metric_card(
         "Production model",
         str(metrics_v1.get("best_model", "N/A")),
-        f"Macro F1: {metrics_v1.get('macro_f1', 'N/A')}",
+        f"Macro F1: {fmt_metric(metrics_v1.get('macro_f1'))}",
     )
 with k2:
     metric_card(
         "Strict model",
         str(metrics_v2.get("best_model", "N/A")),
-        f"Macro F1: {metrics_v2.get('macro_f1', 'N/A')}",
+        f"Macro F1: {fmt_metric(metrics_v2.get('macro_f1'))}",
     )
 with k3:
     metric_card(
@@ -322,18 +439,63 @@ with k4:
     metric_card(
         "Research framing",
         "AI + Climate",
-        "Smart city decision support",
+        "Smart-city decision support",
     )
 
 st.markdown(
     """
     <div class="note-box">
-        <b>Zašto je ova stranica važna:</b> HeatSafe HR nije samo vizualni dashboard, nego AI/ML projekt
-        s jasnom metodologijom, validacijom i ograničenjima. To je bitno za mentora, akademske nagrade i ozbiljnost portfolija.
+        <b>Why this page matters:</b> HeatSafe HR nije zamišljen kao vizualni demo bez podloge,
+        nego kao ozbiljan AI/ML projekt s jasnim pipelineom, feature engineering logikom,
+        validacijom, interpretacijom i dokumentiranim ograničenjima. To je važno i za portfolio
+        i za akademski / natjecateljski kredibilitet projekta.
     </div>
     """,
     unsafe_allow_html=True,
 )
+
+st.markdown('<div class="section-title">Research framing</div>', unsafe_allow_html=True)
+
+rf1, rf2, rf3 = st.columns(3)
+with rf1:
+    st.markdown(
+        """
+        <div class="mini-grid-card">
+            <div class="mini-grid-title">Applied problem</div>
+            <div class="mini-grid-text">
+                Projekt cilja stvarni javni problem: rano prepoznavanje toplinskog rizika u urbanim sredinama
+                i prevođenje meteoroloških signala u operativno korisne odluke.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+with rf2:
+    st.markdown(
+        """
+        <div class="mini-grid-card">
+            <div class="mini-grid-title">Methodological value</div>
+            <div class="mini-grid-text">
+                Sustav ne staje na jednom modelu, nego uspoređuje production i strict pristup
+                kako bi se bolje razumjelo koliko performanse dolaze iz pravih obrazaca, a koliko iz shortcut signala.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+with rf3:
+    st.markdown(
+        """
+        <div class="mini-grid-card">
+            <div class="mini-grid-title">Product relevance</div>
+            <div class="mini-grid-text">
+                Istraživački sloj nije odvojen od proizvoda: isti modeli hrane forecast, alerting,
+                readiness i druge operativne module unutar HeatSafe HR platforme.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 tabs = st.tabs(
     [
@@ -346,10 +508,9 @@ tabs = st.tabs(
 )
 
 with tabs[0]:
-    st.markdown("## Research goal")
+    st.markdown('<div class="section-title">Research goal</div>', unsafe_allow_html=True)
 
     c1, c2 = st.columns(2)
-
     with c1:
         panel(
             "Problem statement",
@@ -359,7 +520,6 @@ with tabs[0]:
             Projekt je zamišljen kao decision-support sustav za gradove, javne službe i turistički sektor.
             """,
         )
-
     with c2:
         panel(
             "Research question",
@@ -373,7 +533,7 @@ with tabs[0]:
             """,
         )
 
-    st.markdown("## Scientific contribution")
+    st.markdown('<div class="section-title">Scientific contribution</div>', unsafe_allow_html=True)
 
     c3, c4, c5 = st.columns(3)
     with c3:
@@ -389,7 +549,7 @@ with tabs[0]:
             "Operational contribution",
             """
             Rezultat nije samo model, nego cijeli sustav: forecast, scenario simulation,
-            multi-city command dashboard, alert escalation logic i event risk procjena.
+            alerting, command view i operativna interpretacija za krajnjeg korisnika.
             """,
         )
     with c5:
@@ -402,11 +562,9 @@ with tabs[0]:
         )
 
 with tabs[1]:
-    st.markdown("## Data & pipeline")
+    st.markdown('<div class="section-title">Data & pipeline</div>', unsafe_allow_html=True)
 
-    st.markdown("### Pipeline overview")
     p1, p2, p3, p4 = st.columns(4)
-
     with p1:
         panel(
             "1. Data ingestion",
@@ -415,7 +573,6 @@ with tabs[1]:
             Nakon toga se spremaju i organiziraju u strukturirani raw layer.
             """,
         )
-
     with p2:
         panel(
             "2. Preprocessing",
@@ -424,7 +581,6 @@ with tabs[1]:
             Računaju se osnovne dnevne metrike: temp max/min/mean, humidity, wind i precipitation.
             """,
         )
-
     with p3:
         panel(
             "3. Risk engine",
@@ -433,7 +589,6 @@ with tabs[1]:
             Time se dobiva operativni signal razumljiv krajnjim korisnicima.
             """,
         )
-
     with p4:
         panel(
             "4. Feature engineering",
@@ -443,9 +598,9 @@ with tabs[1]:
             """,
         )
 
-    st.markdown("### Data design")
-    d1, d2 = st.columns(2)
+    st.markdown('<div class="section-title">Data design</div>', unsafe_allow_html=True)
 
+    d1, d2 = st.columns(2)
     with d1:
         panel(
             "Input signals",
@@ -457,11 +612,10 @@ with tabs[1]:
                 <li>wind speed</li>
                 <li>precipitation</li>
                 <li>pressure</li>
-                <li>calendar/time features</li>
+                <li>calendar / time features</li>
             </ul>
             """,
         )
-
     with d2:
         panel(
             "Engineered features",
@@ -480,21 +634,22 @@ with tabs[1]:
         """
         <div class="note-box">
             <b>Bitna metodološka odluka:</b> projekt koristi vremenski smislen pristup.
-            Modeli se ne evaluiraju na potpuno nasumičnom splitu, nego na vremenski odvojenom test periodu.
+            Modeli se ne evaluiraju na potpuno nasumičnom splitu, nego na vremenski odvojenom test periodu,
+            što bolje simulira stvarnu forecast upotrebu.
         </div>
         """,
         unsafe_allow_html=True,
     )
 
 with tabs[2]:
-    st.markdown("## Models & validation")
+    st.markdown('<div class="section-title">Models & validation</div>', unsafe_allow_html=True)
 
     if not comparison_df.empty:
         st.dataframe(comparison_df, use_container_width=True, hide_index=True)
     else:
         st.warning("Model comparison podaci nisu dostupni.")
 
-    st.markdown("### Zašto 2 modela?")
+    st.markdown('<div class="section-title">Zašto 2 modela?</div>', unsafe_allow_html=True)
 
     c1, c2 = st.columns(2)
     with c1:
@@ -516,15 +671,15 @@ with tabs[2]:
             """,
         )
 
-    st.markdown("### Validation logic")
-    v1, v2, v3 = st.columns(3)
+    st.markdown('<div class="section-title">Validation logic</div>', unsafe_allow_html=True)
 
+    v1, v2, v3 = st.columns(3)
     with v1:
         panel(
             "Train/test split",
             """
             Korišten je vremenski split: raniji podaci za treniranje,
-            noviji period za testiranje. Time se bolje simulira stvarna upotreba.
+            noviji period za testiranje. Time se bolje simulira stvarna upotreba modela.
             """,
         )
     with v2:
@@ -544,7 +699,7 @@ with tabs[2]:
             """,
         )
 
-    st.markdown("### Top featurei")
+    st.markdown('<div class="section-title">Top featurei</div>', unsafe_allow_html=True)
 
     f1, f2 = st.columns(2)
     with f1:
@@ -553,7 +708,6 @@ with tabs[2]:
             st.plotly_chart(fig_v1, use_container_width=True)
         else:
             st.info("Feature importance za production model nije dostupan.")
-
     with f2:
         fig_v2 = build_feature_chart(feat_v2, "Top featurei — strict model", top_n=12)
         if fig_v2 is not None:
@@ -564,7 +718,7 @@ with tabs[2]:
     st.markdown(
         """
         <div class="note-box">
-            <b>Metodološki zaključak:</b> mali pad performansi između production i strict modela
+            <b>Metodološki zaključak:</b> mali ili umjeren pad performansi između production i strict modela
             sugerira da sustav ne ovisi samo o internom risk scoreu, nego stvarno uči iz meteoroloških obrazaca.
         </div>
         """,
@@ -572,10 +726,9 @@ with tabs[2]:
     )
 
 with tabs[3]:
-    st.markdown("## Heuristic vs ML")
+    st.markdown('<div class="section-title">Heuristic vs ML</div>', unsafe_allow_html=True)
 
     c1, c2 = st.columns(2)
-
     with c1:
         panel(
             "Heuristic layer",
@@ -589,7 +742,6 @@ with tabs[3]:
             </ul>
             """,
         )
-
     with c2:
         panel(
             "Machine learning layer",
@@ -604,7 +756,6 @@ with tabs[3]:
             """,
         )
 
-    st.markdown("### Why combine both?")
     st.markdown(
         """
         <div class="note-box">
@@ -621,8 +772,8 @@ with tabs[3]:
         panel(
             "Operational advantage",
             """
-            U kriznom ili upravljačkom kontekstu korisnicima je bitno da vide:
-            readiness status, risk level, preporuke i scenarije. Zato heuristic sloj ostaje važan.
+            U upravljačkom kontekstu korisnicima je važno da vide readiness status, risk level,
+            preporuke i scenarije. Zato heuristic sloj ostaje ključan za krajnju upotrebu.
             """,
         )
     with c4:
@@ -630,15 +781,14 @@ with tabs[3]:
             "Research advantage",
             """
             Za akademsku i tehničku ozbiljnost važno je pokazati da model daje dodatnu vrijednost.
-            Zato su uključeni strict model, validation i analiza feature importance.
+            Zato su uključeni strict model, vremenska validacija i analiza feature importance.
             """,
         )
 
 with tabs[4]:
-    st.markdown("## Limitations & future work")
+    st.markdown('<div class="section-title">Limitations & future work</div>', unsafe_allow_html=True)
 
     c1, c2 = st.columns(2)
-
     with c1:
         panel(
             "Current limitations",
@@ -651,7 +801,6 @@ with tabs[4]:
             </ul>
             """,
         )
-
     with c2:
         panel(
             "Next improvements",
@@ -676,26 +825,53 @@ with tabs[4]:
         unsafe_allow_html=True,
     )
 
-    st.markdown("### Research positioning")
+    st.markdown('<div class="section-title">Research positioning</div>', unsafe_allow_html=True)
+
     r1, r2, r3 = st.columns(3)
     with r1:
         panel(
             "Mentor / faculty view",
             """
-            Projekt pokazuje data engineering, ML modeliranje, validaciju, interpretaciju i product thinking.
+            Projekt pokazuje data engineering, ML modeliranje, validaciju,
+            interpretaciju i product thinking unutar jedne povezane platforme.
             """,
         )
     with r2:
         panel(
             "Award view",
             """
-            Projekt kombinira AI/ML, smart city, climate resilience, sigurnost i kvalitetu života.
+            Projekt kombinira AI/ML, smart city, climate resilience,
+            sigurnost i kvalitetu života u vrlo jasnom društveno korisnom okviru.
             """,
         )
     with r3:
         panel(
             "Portfolio view",
             """
-            Projekt pokazuje da kandidat može izgraditi cijeli sustav: data pipeline + model + aplikaciju + decision layer.
+            Projekt pokazuje da kandidat može izgraditi cijeli sustav:
+            data pipeline + model + evaluaciju + aplikaciju + decision layer.
             """,
         )
+
+st.divider()
+
+st.markdown('<div class="section-title">Methodology summary</div>', unsafe_allow_html=True)
+
+strict_test_rows = analysis_v2.get("test_rows", "N/A")
+strict_train_rows = analysis_v2.get("train_rows", "N/A")
+
+summary_html = (
+    f'<div class="summary-card">'
+    f'<p>HeatSafe HR metodološki je postavljen kao <b>applied AI/ML decision-support projekt</b>, '
+    f'a ne samo kao vizualni dashboard. U središtu sustava su vremenski podaci, feature engineering nad vremenskim nizovima, '
+    f'heuristički risk engine i usporedba production i strict modelne varijante.</p>'
+    f'<p>Production model služi operativnoj upotrebi platforme, dok strict model daje dodatni research sloj '
+    f'jer provjerava koliko sustav zadržava prediktivnu vrijednost bez oslanjanja na shortcut featuree. '
+    f'U trenutno dokumentiranoj strict evaluaciji sustav raspolaže s <b>{strict_train_rows}</b> train redaka i '
+    f'<b>{strict_test_rows}</b> test redaka.</p>'
+    f'<p>Takva arhitektura daje projektu jaču akademsku težinu, veću transparentnost i bolju podlogu '
+    f'za natjecateljski, portfolio i budući istraživački razvoj.</p>'
+    f'</div>'
+)
+
+st.markdown(summary_html, unsafe_allow_html=True)

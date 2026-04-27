@@ -15,8 +15,20 @@ from src.alert_engine import csv_bytes, get_alert_level
 from src.config import DEFAULT_CITY
 from src.decision_engine import build_escalation_plan, build_sector_actions
 from src.escalation_engine import get_city_escalation_summary_by_date
+from src.sidebar import render_app_sidebar
 
 st.set_page_config(page_title="Historical Replay", page_icon="⏪", layout="wide")
+
+st.markdown(
+    """
+    <style>
+        [data-testid="stSidebarNav"] {
+            display: none;
+        }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 DATA_PATH = PROJECT_ROOT / "data" / "processed" / "all_cities_daily_with_risk.csv"
 
@@ -70,7 +82,7 @@ st.markdown(
     .page-hero {
         background: linear-gradient(135deg, #0f172a 0%, #1e293b 55%, #0b3b2e 100%);
         border-radius: 22px;
-        padding: 1.35rem 1.5rem 1.2rem 1.5rem;
+        padding: 1.45rem 1.6rem 1.25rem 1.6rem;
         color: white;
         margin-bottom: 1rem;
         border: 1px solid rgba(255,255,255,0.08);
@@ -78,15 +90,43 @@ st.markdown(
     }
 
     .page-hero-title {
-        font-size: 2rem;
+        font-size: 2.05rem;
         font-weight: 800;
         margin-bottom: 0.35rem;
     }
 
     .page-hero-subtitle {
-        font-size: 0.98rem;
-        line-height: 1.55;
+        font-size: 1rem;
+        line-height: 1.62;
         opacity: 0.95;
+        max-width: 1050px;
+    }
+
+    .chip-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin-top: 0.8rem;
+    }
+
+    .chip {
+        display: inline-block;
+        padding: 0.36rem 0.7rem;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.10);
+        color: white;
+        font-size: 0.86rem;
+        font-weight: 600;
+        border: 1px solid rgba(255,255,255,0.12);
+    }
+
+    .control-card {
+        background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+        border: 1px solid rgba(15,23,42,0.08);
+        border-radius: 18px;
+        padding: 1rem 1rem 0.9rem 1rem;
+        box-shadow: 0 8px 24px rgba(15,23,42,0.06);
+        margin-bottom: 1rem;
     }
 
     .metric-card {
@@ -113,11 +153,13 @@ st.markdown(
         color: #0f172a;
         line-height: 1.1;
         margin-bottom: 0.15rem;
+        word-break: break-word;
     }
 
     .metric-sub {
         font-size: 0.88rem;
         color: #64748b;
+        line-height: 1.5;
     }
 
     .soft-panel {
@@ -138,17 +180,24 @@ st.markdown(
 
     .panel-text {
         color: #334155;
-        line-height: 1.65;
+        line-height: 1.68;
         font-size: 0.95rem;
+    }
+
+    .section-title {
+        font-size: 1.35rem;
+        font-weight: 800;
+        color: #0f172a;
+        margin: 0.35rem 0 0.85rem 0;
     }
 
     .status-pill {
         display: inline-block;
-        padding: 0.35rem 0.72rem;
+        padding: 0.38rem 0.75rem;
         border-radius: 999px;
         color: white;
         font-weight: 700;
-        font-size: 0.86rem;
+        font-size: 0.87rem;
         margin-right: 0.35rem;
         margin-bottom: 0.35rem;
     }
@@ -159,7 +208,18 @@ st.markdown(
         border-radius: 14px;
         padding: 0.95rem 1rem;
         color: #0f172a;
-        margin: 0.7rem 0 1rem 0;
+        margin: 0.75rem 0 1rem 0;
+        line-height: 1.68;
+    }
+
+    .summary-card {
+        background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+        border: 1px solid rgba(15,23,42,0.08);
+        border-radius: 18px;
+        padding: 1rem 1.05rem;
+        box-shadow: 0 8px 24px rgba(15,23,42,0.06);
+        color: #334155;
+        line-height: 1.72;
     }
 
     div.stDownloadButton > button {
@@ -185,11 +245,16 @@ st.markdown(
         gap: 1.2rem;
         margin-top: 0.8rem;
         margin-bottom: 0.8rem;
+        flex-wrap: wrap;
     }
 
     button[data-baseweb="tab"] {
         border-radius: 12px 12px 0 0;
         font-weight: 700;
+    }
+
+    .stDataFrame, .stPlotlyChart {
+        border-radius: 14px;
     }
     </style>
     """,
@@ -229,9 +294,7 @@ def pill(text: str, color: str) -> str:
 @st.cache_data
 def load_daily_risk_data() -> pd.DataFrame:
     if not DATA_PATH.exists():
-        raise FileNotFoundError(
-            f"Missing file: {DATA_PATH}. Run risk pipeline first."
-        )
+        raise FileNotFoundError(f"Missing file: {DATA_PATH}. Run risk pipeline first.")
 
     df = pd.read_csv(DATA_PATH)
     df["date"] = pd.to_datetime(df["date"])
@@ -239,19 +302,19 @@ def load_daily_risk_data() -> pd.DataFrame:
 
 
 def build_replay_summary(window_df: pd.DataFrame, city: str) -> dict:
-    window_df = window_df.sort_values("date").reset_index(drop=True)
+    ordered_df = window_df.sort_values("date").reset_index(drop=True)
 
-    next24 = window_df.iloc[0]
-    next72 = window_df.head(3).sort_values(
+    next24 = ordered_df.iloc[0]
+    next72 = ordered_df.head(3).sort_values(
         ["heat_risk_score", "apparent_temp_max"],
         ascending=[False, False],
     ).iloc[0]
-    next7 = window_df.sort_values(
+    next7 = ordered_df.sort_values(
         ["heat_risk_score", "apparent_temp_max"],
         ascending=[False, False],
     ).iloc[0]
 
-    high_risk_days = int(window_df["risk_level"].isin(["Visok", "Vrlo visok"]).sum())
+    high_risk_days = int(ordered_df["risk_level"].isin(["Visok", "Vrlo visok"]).sum())
 
     return {
         "city": city,
@@ -284,7 +347,6 @@ def build_replay_log(city_df: pd.DataFrame, issue_period_df: pd.DataFrame) -> pd
             continue
 
         summary = build_replay_summary(window_df, str(issue_row["city"]))
-
         escalation_summary = get_city_escalation_summary_by_date(
             str(issue_row["city"]),
             issue_date,
@@ -324,6 +386,7 @@ def build_replay_log(city_df: pd.DataFrame, issue_period_df: pd.DataFrame) -> pd
     if not replay_df.empty:
         replay_df = replay_df.sort_values("issue_date").reset_index(drop=True)
         replay_df["alert_severity_numeric"] = replay_df["alert_severity"].map(ALERT_NUMERIC_MAP)
+
     return replay_df
 
 
@@ -333,8 +396,15 @@ st.markdown(
         <div class="page-hero-title">⏪ Historical Replay / Case Study</div>
         <div class="page-hero-subtitle">
             Replay modul pokazuje što bi HeatSafe HR napravio u odabranom povijesnom periodu.
-            Time projekt dobiva evaluation layer: ne samo “što radi danas”, nego i “što bi preporučio
-            u stvarnoj toplinskoj epizodi”.
+            Time projekt dobiva evaluacijski sloj: ne samo “što radi danas”, nego i
+            “što bi preporučio tijekom stvarne toplinske epizode”.
+        </div>
+        <div class="chip-row">
+            <span class="chip">Historical Evaluation</span>
+            <span class="chip">Decision Support Replay</span>
+            <span class="chip">Alert Logic</span>
+            <span class="chip">Case Study</span>
+            <span class="chip">Operational Readiness</span>
         </div>
     </div>
     """,
@@ -350,20 +420,30 @@ except Exception as exc:
 default_city = st.session_state.get("selected_city", DEFAULT_CITY)
 default_index = CITIES.index(default_city) if default_city in CITIES else 0
 
-top1, top2 = st.columns([1.1, 1.3])
-with top1:
+st.markdown('<div class="section-title">Replay control panel</div>', unsafe_allow_html=True)
+
+control_left, control_right = st.columns([1.05, 1.45])
+with control_left:
     selected_city = st.selectbox("Odaberi grad", CITIES, index=default_index)
     st.session_state.selected_city = selected_city
 
 city_df = df[df["city"] == selected_city].copy().sort_values("date")
+latest_city_row = city_df.iloc[-1]
+
+render_app_sidebar(
+    selected_city=selected_city,
+    risk_level=str(latest_city_row["risk_level"]),
+    readiness_status=READINESS_MAP.get(str(latest_city_row["risk_level"]), "Monitoring"),
+)
 
 min_date = city_df["date"].min().date()
 max_date = city_df["date"].max().date()
-
 default_end = max_date
-default_start = max(min_date, default_end - pd.Timedelta(days=13))
+default_start = (pd.Timestamp(default_end) - pd.Timedelta(days=13)).date()
+if default_start < min_date:
+    default_start = min_date
 
-with top2:
+with control_right:
     selected_range = st.date_input(
         "Odaberi period za replay",
         value=(default_start, default_end),
@@ -394,6 +474,8 @@ if replay_df.empty:
 
 critical_count = int((replay_df["alert_severity"] == "Critical Alert").sum())
 warning_count = int(replay_df["alert_severity"].isin(["Heat Warning", "Critical Alert"]).sum())
+issued_count = int((replay_df["alert_issued"] == "Yes").sum())
+
 first_alert_row = replay_df[replay_df["alert_issued"] == "Yes"].head(1)
 first_alert_date = (
     pd.to_datetime(first_alert_row.iloc[0]["issue_date"]).strftime("%d.%m.%Y.")
@@ -406,22 +488,38 @@ peak_row = replay_df.sort_values(
     ascending=[False, False],
 ).iloc[0]
 
-m1, m2, m3, m4 = st.columns(4)
-with m1:
-    metric_card("Replay days", str(len(replay_df)), selected_city)
-with m2:
-    metric_card("First alert", str(first_alert_date), "First issued signal")
-with m3:
-    metric_card("Warning or higher", str(warning_count), "Heat Warning + Critical")
-with m4:
-    metric_card("Critical alerts", str(critical_count), "Highest severity")
-
 st.markdown(
     """
     <div class="note-box">
-        <b>Kako čitati replay:</b> svaki red i svaki issue date predstavljaju dan na koji je sustav “pokrenut”.
-        Zatim se gleda što se stvarno dogodilo kroz sljedećih 7 dana i iz toga se računa
-        what-would-the-system-do snapshot.
+        <b>Kako čitati replay:</b> svaki issue date predstavlja dan na koji je sustav “pokrenut”.
+        Zatim se promatra što se u sljedećih 7 dana događalo u povijesnim podacima i iz toga se rekonstruira
+        readiness, alert severity, target audience i operator response koji bi HeatSafe HR tada generirao.
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+m1, m2, m3, m4, m5 = st.columns(5)
+with m1:
+    metric_card("Replay days", str(len(replay_df)), selected_city)
+with m2:
+    metric_card("Alerts issued", str(issued_count), "Historical operator output")
+with m3:
+    metric_card("First alert", str(first_alert_date), "First issued signal")
+with m4:
+    metric_card("Warning or higher", str(warning_count), "Heat Warning + Critical")
+with m5:
+    metric_card("Critical alerts", str(critical_count), "Highest severity")
+
+st.markdown(
+    f"""
+    <div class="summary-card">
+        U odabranom replay periodu za <b>{selected_city}</b> sustav bi najjači 7-dnevni signal vidio
+        na issue date <b>{pd.to_datetime(peak_row['issue_date']).strftime('%d.%m.%Y.')}</b>,
+        uz peak razinu <b>{peak_row['next_7d_peak_level']}</b> i score
+        <b>{peak_row['next_7d_peak_score']:.1f}</b>. Time Historical Replay služi kao
+        <b>evaluation layer</b> koji pokazuje ne samo povijesne uvjete, nego i kakvu bi
+        operativnu odluku HeatSafe HR donio u tom trenutku.
     </div>
     """,
     unsafe_allow_html=True,
@@ -509,7 +607,12 @@ with tabs[1]:
     ].copy()
 
     replay_summary = build_replay_summary(selected_window_df, selected_city)
-    replay_alert = get_alert_level(replay_summary)
+
+    replay_alert = get_alert_level(
+        replay_summary,
+        escalation_probability=float(selected_replay["escalation_probability_72h"]),
+        escalation_label=str(selected_replay["escalation_label_72h"]),
+    )
     replay_escalation = build_escalation_plan(replay_summary["next_7d_peak_level"])
     replay_actions = build_sector_actions(replay_summary["next_7d_peak_level"])
 
@@ -518,6 +621,19 @@ with tabs[1]:
         ALERT_COLOR_MAP.get(selected_replay["alert_severity"], "#64748b"),
     )
     st.markdown(badge_html, unsafe_allow_html=True)
+
+    if pd.notna(selected_replay["escalation_label_72h"]):
+        st.markdown(
+            pill(
+                selected_replay["escalation_label_72h"],
+                {
+                    "Stable": "#64748b",
+                    "Watch": "#e6a700",
+                    "Likely escalation": "#c0392b",
+                }.get(str(selected_replay["escalation_label_72h"]), "#64748b"),
+            ),
+            unsafe_allow_html=True,
+        )
 
     c1, c2, c3, c4 = st.columns(4)
     with c1:
@@ -528,18 +644,19 @@ with tabs[1]:
         metric_card("Next 7d peak", selected_replay["next_7d_peak_level"], f"{selected_replay['next_7d_peak_score']:.1f}")
     with c4:
         metric_card("Readiness", selected_replay["readiness_status"], selected_replay["alert_severity"])
+
     c5, c6 = st.columns(2)
     with c5:
         metric_card(
             "72h escalation probability",
             f"{selected_replay['escalation_probability_72h']:.2f}",
-            "V3 early-warning",
+            "Historical v3 signal",
         )
     with c6:
         metric_card(
             "Escalation signal",
             selected_replay["escalation_label_72h"],
-            "Historical V3 signal",
+            "Historical early-warning label",
         )
 
     st.info(selected_replay["escalation_operator_message"])
@@ -555,7 +672,7 @@ with tabs[1]:
         )
     with right:
         panel(
-            "Observed window",
+            "Observed replay window",
             f"""
             <b>Replay window:</b> {selected_issue_date.strftime('%d.%m.%Y.')} - {end_window.strftime('%d.%m.%Y.')}<br>
             <b>Peak date:</b> {pd.to_datetime(replay_summary['next_7d_peak_date']).strftime('%d.%m.%Y.')}<br>
@@ -581,6 +698,33 @@ with tabs[1]:
         panel("Što napraviti u 24h", "<br>".join(f"• {x}" for x in replay_escalation["within_24h"]))
     with e3:
         panel("Što napraviti u 72h", "<br>".join(f"• {x}" for x in replay_escalation["within_72h"]))
+
+    st.markdown("### Observed 7-day replay window")
+    selected_window_plot = px.bar(
+        selected_window_df,
+        x="date",
+        y="heat_risk_score",
+        color="risk_level",
+        color_discrete_map=RISK_COLOR_MAP,
+        title=f"Observed 7-day window from {selected_issue_str} — {selected_city}",
+        hover_data={
+            "temp_max": True,
+            "temp_min": True,
+            "apparent_temp_max": True,
+            "humidity_mean": True,
+            "date": False,
+        },
+    )
+    selected_window_plot.update_layout(
+        height=380,
+        margin=dict(l=20, r=20, t=50, b=20),
+        xaxis_title="Datum",
+        yaxis_title="Heat Risk Score",
+        plot_bgcolor="white",
+        paper_bgcolor="white",
+    )
+    selected_window_plot.update_yaxes(gridcolor="rgba(15,23,42,0.08)")
+    st.plotly_chart(selected_window_plot, use_container_width=True)
 
 with tabs[2]:
     st.markdown("### Replay log table")
@@ -620,3 +764,14 @@ with tabs[2]:
         use_container_width=True,
         key=f"dl_replay_{selected_city}",
     )
+
+st.markdown(
+    """
+    <div class="note-box">
+        <b>Why this page matters:</b> Historical Replay jača vjerodostojnost projekta jer pokazuje kako bi
+        HeatSafe HR radio na stvarnim povijesnim epizodama. To je važan most između modela, dashboarda i
+        ozbiljnog decision-support proizvoda.
+    </div>
+    """,
+    unsafe_allow_html=True,
+)

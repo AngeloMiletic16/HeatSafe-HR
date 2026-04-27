@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -38,6 +39,7 @@ from src.resource_routing_engine import (
     build_top_dispatch_summary,
     recommend_dispatch_resources,
 )
+from src.sidebar import render_app_sidebar
 from src.vulnerability_engine import (
     build_impact_adjusted_priority,
     build_vulnerability_recommendations,
@@ -46,176 +48,301 @@ from src.vulnerability_engine import (
 )
 from src.xai_engine import explain_escalation_row
 
+st.set_page_config(
+    page_title="Action Center | HeatSafe HR",
+    page_icon="🚨",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+st.markdown(
+    """
+    <style>
+        [data-testid="stSidebarNav"] {
+            display: none;
+        }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 RISK_COLOR_MAP = {
     "Nizak": "#2E8B57",
     "Umjeren": "#E6A700",
     "Visok": "#E67E22",
     "Vrlo visok": "#C0392B",
 }
+ESCALATION_COLOR_MAP = {
+    "Stable": "#64748b",
+    "Watch": "#E6A700",
+    "Likely escalation": "#C0392B",
+}
+VULNERABILITY_COLOR_MAP = {
+    "Lower vulnerability": "#2E8B57",
+    "Moderate vulnerability": "#E6A700",
+    "High vulnerability": "#E67E22",
+    "Very high vulnerability": "#C0392B",
+}
 
-st.markdown(
-    """
-    <style>
-    .block-container {
-        padding-top: 1.6rem;
-        padding-bottom: 2rem;
-        max-width: 1350px;
-    }
 
-    .page-hero {
-        background: linear-gradient(135deg, #0f172a 0%, #1e293b 55%, #0b3b2e 100%);
-        border-radius: 22px;
-        padding: 1.35rem 1.5rem 1.2rem 1.5rem;
-        color: white;
-        margin-bottom: 1rem;
-        border: 1px solid rgba(255,255,255,0.08);
-        box-shadow: 0 10px 28px rgba(0,0,0,0.16);
-    }
+def inject_custom_css() -> None:
+    st.markdown(
+        """
+        <style>
+        .main .block-container {
+            padding-top: 1.8rem;
+            padding-bottom: 2rem;
+            max-width: 1360px;
+        }
 
-    .page-hero-title {
-        font-size: 2rem;
-        font-weight: 800;
-        margin-bottom: 0.35rem;
-    }
+        .page-hero {
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 55%, #0b3b2e 100%);
+            border-radius: 22px;
+            padding: 1.45rem 1.6rem 1.25rem 1.6rem;
+            color: white;
+            margin-bottom: 1rem;
+            border: 1px solid rgba(255,255,255,0.08);
+            box-shadow: 0 10px 28px rgba(0,0,0,0.16);
+        }
 
-    .page-hero-subtitle {
-        font-size: 0.98rem;
-        line-height: 1.55;
-        opacity: 0.95;
-    }
+        .page-hero-title {
+            font-size: 2.1rem;
+            font-weight: 800;
+            margin-bottom: 0.35rem;
+            letter-spacing: -0.02em;
+        }
 
-    .metric-card {
-        background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
-        border: 1px solid rgba(15,23,42,0.08);
-        border-radius: 18px;
-        padding: 0.95rem 1rem;
-        box-shadow: 0 8px 24px rgba(15,23,42,0.06);
-        min-height: 110px;
-    }
+        .page-hero-subtitle {
+            font-size: 1rem;
+            line-height: 1.62;
+            opacity: 0.95;
+            max-width: 1100px;
+        }
 
-    .metric-label {
-        font-size: 0.78rem;
-        color: #64748b;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.03em;
-        margin-bottom: 0.4rem;
-    }
+        .chip-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-top: 0.85rem;
+        }
 
-    .metric-value {
-        font-size: 1.35rem;
-        font-weight: 800;
-        color: #0f172a;
-        line-height: 1.2;
-        margin-bottom: 0.2rem;
-        word-break: break-word;
-    }
+        .chip {
+            display: inline-block;
+            padding: 0.38rem 0.72rem;
+            border-radius: 999px;
+            background: rgba(255,255,255,0.10);
+            color: white;
+            font-size: 0.88rem;
+            font-weight: 600;
+            border: 1px solid rgba(255,255,255,0.12);
+        }
 
-    .metric-sub {
-        font-size: 0.88rem;
-        color: #64748b;
-    }
+        .section-title {
+            font-size: 1.35rem;
+            font-weight: 800;
+            color: #0f172a;
+            margin: 0.4rem 0 0.9rem 0;
+        }
 
-    .status-pill {
-        display: inline-block;
-        padding: 0.42rem 0.82rem;
-        border-radius: 999px;
-        color: white;
-        font-weight: 700;
-        font-size: 0.94rem;
-    }
+        .metric-card {
+            background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+            border: 1px solid rgba(15,23,42,0.08);
+            border-radius: 18px;
+            padding: 1rem 1rem 0.95rem 1rem;
+            box-shadow: 0 8px 24px rgba(15,23,42,0.06);
+            min-height: 116px;
+        }
 
-    .soft-panel {
-        background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
-        border: 1px solid rgba(15,23,42,0.08);
-        border-radius: 18px;
-        padding: 1rem 1rem 0.9rem 1rem;
-        box-shadow: 0 8px 24px rgba(15,23,42,0.06);
-        height: 100%;
-    }
+        .metric-label {
+            font-size: 0.8rem;
+            color: #64748b;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            margin-bottom: 0.4rem;
+        }
 
-    .panel-title {
-        font-size: 1.08rem;
-        font-weight: 800;
-        color: #0f172a;
-        margin-bottom: 0.8rem;
-    }
+        .metric-value {
+            font-size: 1.38rem;
+            font-weight: 800;
+            color: #0f172a;
+            line-height: 1.2;
+            margin-bottom: 0.18rem;
+            word-break: break-word;
+        }
 
-    .panel-text {
-        color: #334155;
-        line-height: 1.6;
-        font-size: 0.95rem;
-    }
+        .metric-sub {
+            font-size: 0.88rem;
+            color: #64748b;
+            line-height: 1.5;
+        }
 
-    .soft-list {
-        margin: 0;
-        padding-left: 1.1rem;
-        color: #334155;
-        line-height: 1.7;
-        font-size: 0.95rem;
-    }
+        .status-pill {
+            display: inline-block;
+            padding: 0.42rem 0.82rem;
+            border-radius: 999px;
+            color: white;
+            font-weight: 700;
+            font-size: 0.92rem;
+            margin-right: 0.35rem;
+            margin-bottom: 0.35rem;
+        }
 
-    .report-box {
-        background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
-        border: 1px solid rgba(15,23,42,0.08);
-        border-radius: 18px;
-        padding: 1rem;
-        box-shadow: 0 8px 24px rgba(15,23,42,0.06);
-        margin-top: 0.8rem;
-    }
+        .soft-panel {
+            background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+            border: 1px solid rgba(15,23,42,0.08);
+            border-radius: 18px;
+            padding: 1rem 1rem 0.95rem 1rem;
+            box-shadow: 0 8px 24px rgba(15,23,42,0.06);
+            height: 100%;
+        }
 
-    .subsection-title {
-        font-size: 1.2rem;
-        font-weight: 800;
-        color: #0f172a;
-        margin: 0.25rem 0 0.75rem 0;
-    }
+        .panel-title {
+            font-size: 1.08rem;
+            font-weight: 800;
+            color: #0f172a;
+            margin-bottom: 0.75rem;
+        }
 
-    div.stDownloadButton > button {
-        width: 100%;
-        border-radius: 14px;
-        padding: 0.72rem 1rem;
-        font-weight: 700;
-        border: none;
-        background: linear-gradient(135deg, #0f172a 0%, #1d4ed8 100%);
-        color: white;
-        box-shadow: 0 8px 20px rgba(29, 78, 216, 0.22);
-        transition: all 0.2s ease-in-out;
-    }
+        .panel-text {
+            color: #334155;
+            line-height: 1.68;
+            font-size: 0.95rem;
+        }
 
-    div.stDownloadButton > button:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 10px 24px rgba(29, 78, 216, 0.30);
-        background: linear-gradient(135deg, #1e293b 0%, #2563eb 100%);
-        color: white;
-    }
+        .soft-list {
+            margin: 0;
+            padding-left: 1.1rem;
+            color: #334155;
+            line-height: 1.72;
+            font-size: 0.95rem;
+        }
 
-    div.stDownloadButton > button:focus:not(:active) {
-        border: none;
-        color: white;
-    }
+        .note-box {
+            background: #eff6ff;
+            border-left: 6px solid #2563eb;
+            border-radius: 14px;
+            padding: 0.95rem 1rem;
+            color: #0f172a;
+            margin: 0.75rem 0 1rem 0;
+            line-height: 1.65;
+        }
 
-    div[data-baseweb="tab-list"] {
-        gap: 1.4rem;
-        margin-top: 1rem;
-        margin-bottom: 1rem;
-        flex-wrap: wrap;
-    }
+        .warning-box {
+            background: #fff7ed;
+            border-left: 6px solid #ea580c;
+            border-radius: 14px;
+            padding: 0.95rem 1rem;
+            color: #7c2d12;
+            margin: 0.75rem 0 1rem 0;
+            line-height: 1.65;
+        }
 
-    button[data-baseweb="tab"] {
-        border-radius: 12px 12px 0 0;
-        font-weight: 700;
-        padding: 0.55rem 0.9rem;
-        margin-right: 0.25rem;
-    }
+        .report-box {
+            background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+            border: 1px solid rgba(15,23,42,0.08);
+            border-radius: 18px;
+            padding: 1rem;
+            box-shadow: 0 8px 24px rgba(15,23,42,0.06);
+            margin-top: 0.8rem;
+        }
 
-    div[data-baseweb="tab-panel"] {
-        padding-top: 1rem;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+        .subsection-title {
+            font-size: 1.18rem;
+            font-weight: 800;
+            color: #0f172a;
+            margin: 0.25rem 0 0.8rem 0;
+        }
+
+        .compact-card {
+            background: #ffffff;
+            border: 1px solid rgba(15,23,42,0.08);
+            border-radius: 18px;
+            padding: 1rem;
+            box-shadow: 0 8px 24px rgba(15,23,42,0.06);
+            height: 100%;
+        }
+
+        .compact-title {
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #64748b;
+            font-weight: 700;
+            margin-bottom: 0.35rem;
+        }
+
+        .compact-value {
+            font-size: 1.22rem;
+            font-weight: 800;
+            color: #0f172a;
+            margin-bottom: 0.25rem;
+        }
+
+        .compact-text {
+            font-size: 0.92rem;
+            color: #475569;
+            line-height: 1.6;
+        }
+
+        div.stDownloadButton > button {
+            width: 100%;
+            border-radius: 14px;
+            padding: 0.72rem 1rem;
+            font-weight: 700;
+            border: none;
+            background: linear-gradient(135deg, #0f172a 0%, #1d4ed8 100%);
+            color: white;
+            box-shadow: 0 8px 20px rgba(29, 78, 216, 0.22);
+            transition: all 0.2s ease-in-out;
+        }
+
+        div.stDownloadButton > button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 10px 24px rgba(29, 78, 216, 0.30);
+            background: linear-gradient(135deg, #1e293b 0%, #2563eb 100%);
+            color: white;
+        }
+
+        div.stDownloadButton > button:focus:not(:active) {
+            border: none;
+            color: white;
+        }
+
+        div[data-baseweb="tab-list"] {
+            gap: 1rem;
+            margin-top: 1rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }
+
+        button[data-baseweb="tab"] {
+            border-radius: 12px 12px 0 0;
+            font-weight: 700;
+            padding: 0.58rem 0.95rem;
+            margin-right: 0.25rem;
+        }
+
+        div[data-baseweb="tab-panel"] {
+            padding-top: 1rem;
+        }
+
+        .stDataFrame, .stPlotlyChart {
+            border-radius: 14px;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        if pd.isna(value):
+            return default
+        return float(value)
+    except Exception:
+        return default
 
 
 def badge(text: str, color: str) -> None:
@@ -310,7 +437,6 @@ def build_timeline_figure(df: pd.DataFrame, city_name: str) -> go.Figure:
     colors = [RISK_COLOR_MAP.get(level, "#64748b") for level in plot_df["heuristic_risk_level"]]
 
     fig = go.Figure()
-
     fig.add_trace(
         go.Bar(
             x=plot_df["date_str"],
@@ -376,23 +502,10 @@ def build_timeline_figure(df: pd.DataFrame, city_name: str) -> go.Figure:
         gridcolor="rgba(15,23,42,0.08)",
         zeroline=False,
     )
-
     return fig
 
 
-st.markdown(
-    """
-    <div class="page-hero">
-        <div class="page-hero-title">🚨 Action Center / Alert Center</div>
-        <div class="page-hero-subtitle">
-            Operativni command center za toplinski rizik. Ova stranica spaja forecast,
-            readiness status, sektor-specifične preporuke, event risk procjenu,
-            impact-based forecasting, vulnerability layer, XAI i export-ready briefove.
-        </div>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
+inject_custom_css()
 
 cities = [
     "Dubrovnik",
@@ -403,15 +516,39 @@ cities = [
     "Zadar",
     "Zagreb",
 ]
+
 default_city = st.session_state.get("selected_city", DEFAULT_CITY)
 default_index = cities.index(default_city) if default_city in cities else 0
 
-top1, top2 = st.columns([1, 1])
+st.markdown(
+    """
+    <div class="page-hero">
+        <div class="page-hero-title">🚨 Action Center</div>
+        <div class="page-hero-subtitle">
+            Operativni command sloj za toplinski rizik. Ova stranica spaja forecast, readiness,
+            72h escalation signal, vulnerability layer, impact-based forecasting, XAI,
+            resource routing i export-ready briefing u jedinstven radni pogled za grad,
+            službe i koordinacijske timove.
+        </div>
+        <div class="chip-row">
+            <span class="chip">Decision Support</span>
+            <span class="chip">Escalation</span>
+            <span class="chip">Vulnerability</span>
+            <span class="chip">XAI</span>
+            <span class="chip">Routing</span>
+            <span class="chip">PDF Briefing</span>
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
+st.markdown('<div class="section-title">Operational control panel</div>', unsafe_allow_html=True)
+
+top1, top2 = st.columns([1, 1])
 with top1:
     selected_city = st.selectbox("Odaberi grad", cities, index=default_index)
     st.session_state.selected_city = selected_city
-
 with top2:
     scenario_enabled = st.toggle("Scenario mode", value=True)
 
@@ -625,28 +762,99 @@ daily_briefing_pdf_bytes = generate_daily_briefing_pdf(
     scenario_meta=scenario_meta,
 )
 
-st.markdown("## City Readiness Status")
-badge(summary["readiness_status"], readiness_to_color(summary["readiness_status"]))
-
-m1, m2, m3, m4, m5 = st.columns(5)
-with m1:
-    metric_card("Next 24h risk", summary["next_24h_level"])
-with m2:
-    metric_card("Next 24h score", f"{summary['next_24h_score']:.1f}")
-with m3:
-    metric_card("Next 72h peak", summary["next_72h_peak_level"])
-with m4:
-    metric_card("Next 7d peak", summary["next_7d_peak_level"])
-with m5:
-    metric_card("High-risk days", str(summary["high_risk_days"]))
-
-st.info(
-    f"""
-    **Operational status for {selected_city}:** {summary['readiness_status']}  
-    Peak risk within the next 7 days is expected on **{summary['next_7d_peak_date'].strftime('%d.%m.%Y.')}**
-    with score **{summary['next_7d_peak_score']:.1f}**.
-    """
+render_app_sidebar(
+    selected_city=selected_city,
+    risk_level=summary["next_24h_level"],
+    readiness_status=summary["readiness_status"],
+    escalation_label=live_escalation["escalation_label_72h"],
+    escalation_probability=live_escalation["escalation_probability_72h"],
 )
+
+st.markdown(
+    f"""
+    <div class="note-box">
+        <b>Operator framing:</b> Action Center pretvara forecast signal u konkretne odluke.
+        Fokus nije samo na tome koliki je toplinski rizik, nego i na tome
+        <b>koga pogađa, što treba napraviti, koji resurs prvi aktivirati i kako pripremiti komunikaciju</b>.
+        Trenutno je za grad <b>{selected_city}</b> readiness status <b>{summary['readiness_status']}</b>,
+        a 72h escalation signal iznosi <b>{live_escalation['escalation_label_72h']}</b>
+        uz probability <b>{live_escalation['escalation_probability_72h']:.2f}</b>.
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+if scenario_enabled:
+    st.markdown(
+        f"""
+        <div class="warning-box">
+            <b>Scenario mode active:</b> koristiš simulirani operativni scenarij s promjenama
+            <b>ΔT {temperature_delta:+.1f} °C</b>, <b>ΔRH {humidity_delta:+.1f}%</b> i
+            <b>ΔWind {wind_delta:+.1f} m/s</b>. Ovo je korisno za what-if planiranje,
+            testiranje spremnosti i demonstraciju kako se signal mijenja pod težim uvjetima.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+st.markdown('<div class="section-title">Current operational snapshot</div>', unsafe_allow_html=True)
+
+current_risk_color = risk_to_color(summary["next_24h_level"])
+current_readiness_color = readiness_to_color(summary["readiness_status"])
+current_escalation_color = ESCALATION_COLOR_MAP.get(live_escalation["escalation_label_72h"], "#64748b")
+current_vulnerability_color = VULNERABILITY_COLOR_MAP.get(vulnerability_snapshot["vulnerability_band"], "#64748b")
+
+status_left, status_right = st.columns([1.2, 1])
+with status_left:
+    st.markdown(
+        f"""
+        <div class="compact-card">
+            <div class="compact-title">Selected city command view</div>
+            <div class="compact-value">{selected_city}</div>
+            <div style="margin:0.45rem 0 0.75rem 0;">
+                <span class="status-pill" style="background:{current_risk_color};">{summary["next_24h_level"]}</span>
+                <span class="status-pill" style="background:{current_readiness_color};">{summary["readiness_status"]}</span>
+                <span class="status-pill" style="background:{current_escalation_color};">{live_escalation["escalation_label_72h"]}</span>
+                <span class="status-pill" style="background:{current_vulnerability_color};">{vulnerability_snapshot["vulnerability_band"]}</span>
+            </div>
+            <div class="compact-text">
+                Peak within the next 7 days is expected on
+                <b>{summary["next_7d_peak_date"].strftime("%d.%m.%Y.")}</b> with signal
+                <b>{summary["next_7d_peak_level"]} ({summary["next_7d_peak_score"]:.1f})</b>.
+                Impact-adjusted priority score is <b>{impact_adjusted_priority:.1f}</b>.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+with status_right:
+    st.markdown(
+        f"""
+        <div class="compact-card">
+            <div class="compact-title">Why this matters now</div>
+            <div class="compact-text">
+                Prioritetne skupine za trenutni signal uključuju <b>{len(priority_groups)}</b> grupa,
+                a procijenjeni impact band je <b>{impact_band}</b>. Action Center ovdje spaja
+                forecast, escalation, vulnerability, routing i XAI kako bi operater odmah imao
+                i signal i preporučenu akciju, a ne samo meteorološki prikaz.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+k1, k2, k3, k4, k5 = st.columns(5)
+with k1:
+    metric_card("Next 24h risk", summary["next_24h_level"], "Immediate operational view")
+with k2:
+    metric_card("Next 24h score", f"{summary['next_24h_score']:.1f}", "Projected short-term score")
+with k3:
+    metric_card("72h escalation", live_escalation["escalation_label_72h"], f"{live_escalation['escalation_probability_72h']:.2f}")
+with k4:
+    metric_card("Impact priority", f"{impact_adjusted_priority:.1f}", "Heat + escalation + vulnerability")
+with k5:
+    metric_card("High-risk days", str(summary["high_risk_days"]), "Within next 7 days")
 
 tabs = st.tabs(
     [
@@ -657,7 +865,7 @@ tabs = st.tabs(
 )
 
 with tabs[0]:
-    st.markdown("### Operational forecast timeline")
+    st.markdown('<div class="section-title">Operational forecast timeline</div>', unsafe_allow_html=True)
 
     peak_row = active_df.sort_values(
         ["heuristic_risk_score", "apparent_temp_max", "ml_prediction_confidence"],
@@ -689,7 +897,7 @@ with tabs[0]:
     fig = build_timeline_figure(active_df, selected_city)
     st.plotly_chart(fig, use_container_width=True)
 
-    st.markdown("### Sector recommendations")
+    st.markdown('<div class="section-title">Sector recommendations</div>', unsafe_allow_html=True)
     rec1, rec2, rec3 = st.columns(3)
     with rec1:
         render_list_card("Preporuke za grad", actions["city"])
@@ -698,7 +906,7 @@ with tabs[0]:
     with rec3:
         render_list_card("Preporuke za turizam", actions["tourism"])
 
-    st.markdown("### Alert escalation logic")
+    st.markdown('<div class="section-title">Escalation plan</div>', unsafe_allow_html=True)
     esc1, esc2, esc3 = st.columns(3)
     with esc1:
         render_list_card("Što napraviti odmah", escalation_plan["immediately"])
@@ -707,7 +915,7 @@ with tabs[0]:
     with esc3:
         render_list_card("Što napraviti u 72h", escalation_plan["within_72h"])
 
-    st.markdown("### Impact-based forecasting")
+    st.markdown('<div class="section-title">Impact-based forecasting</div>', unsafe_allow_html=True)
     i1, i2, i3 = st.columns(3)
     with i1:
         metric_card("Impact band", impact_band, "Operational severity")
@@ -730,7 +938,7 @@ with tabs[0]:
     with p3:
         render_list_card("Operational triggers", operational_triggers)
 
-    st.markdown("### Socio-economic vulnerability layer")
+    st.markdown('<div class="section-title">Socio-economic vulnerability layer</div>', unsafe_allow_html=True)
     vv1, vv2, vv3 = st.columns(3)
     with vv1:
         metric_card(
@@ -757,7 +965,7 @@ with tabs[0]:
     with vd2:
         render_list_card("Vulnerability-sensitive recommendations", vulnerability_recommendations)
 
-    st.markdown("### Explainable AI for v3 escalation signal")
+    st.markdown('<div class="section-title">Explainable AI for v3 escalation signal</div>', unsafe_allow_html=True)
     x1, x2, x3 = st.columns(3)
     with x1:
         metric_card("XAI method", str(xai_summary["method"]), "Local explanation engine")
@@ -778,7 +986,7 @@ with tabs[0]:
 
     st.info(xai_summary["explanation_text"])
 
-    st.markdown("### Operational resource routing")
+    st.markdown('<div class="section-title">Operational resource routing</div>', unsafe_allow_html=True)
 
     if dispatch_resources_df.empty:
         st.info("Nema dostupnih dispatch resource preporuka za ovaj grad.")
@@ -832,7 +1040,7 @@ with tabs[0]:
 
         st.dataframe(routing_display_df, use_container_width=True, hide_index=True)
 
-    st.markdown("### Recommended resources for current escalation signal")
+    st.markdown('<div class="section-title">Recommended resources for current escalation signal</div>', unsafe_allow_html=True)
     if recommended_resources_df.empty:
         st.info("Nema preporučenih resource točaka za ovaj grad.")
     else:
@@ -851,10 +1059,10 @@ with tabs[0]:
                     """,
                 )
 
-    st.markdown("### Executive summary for civil protection")
+    st.markdown('<div class="section-title">Executive summary for civil protection</div>', unsafe_allow_html=True)
     st.code(civil_protection_brief, language="text")
 
-    st.markdown("### Operativni pregled po danima")
+    st.markdown('<div class="section-title">Operativni pregled po danima</div>', unsafe_allow_html=True)
     timeline_df = active_df[
         [
             "date",
@@ -923,7 +1131,7 @@ with tabs[0]:
     st.markdown("</div>", unsafe_allow_html=True)
 
 with tabs[1]:
-    st.markdown("### Event / Tourism Risk Check")
+    st.markdown('<div class="section-title">Event / Tourism Risk Check</div>', unsafe_allow_html=True)
 
     day_options = active_df["date"].dt.strftime("%d.%m.%Y.").tolist()
     date_map = dict(zip(day_options, active_df["date"]))
@@ -989,8 +1197,18 @@ with tabs[1]:
         assessment=event_assessment,
     )
 
-    l1, l2 = st.columns([1, 1])
+    st.markdown(
+        f"""
+        <div class="note-box">
+            <b>Event framing:</b> ova procjena ne gleda samo temperaturu, nego spaja forecast signal,
+            broj sudionika, vrijeme održavanja i prisutnost osjetljivih skupina kako bi dao
+            operativnu preporuku za prilagodbu ili provedbu događaja.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
+    l1, l2 = st.columns([1, 1])
     with l1:
         st.markdown("### Rezultat procjene događaja")
         x1, x2, x3 = st.columns(3)
@@ -1000,7 +1218,9 @@ with tabs[1]:
             metric_card("Event risk level", event_assessment.event_level)
         with x3:
             metric_card("Readiness status", event_assessment.readiness_status)
-        badge(event_assessment.recommendation, readiness_to_color(event_assessment.readiness_status))
+
+        event_readiness_color = readiness_to_color(event_assessment.readiness_status)
+        badge(event_assessment.recommendation, event_readiness_color)
 
     with l2:
         render_list_card("Action items", event_assessment.action_items)
@@ -1059,7 +1279,40 @@ with tabs[1]:
     st.markdown("</div>", unsafe_allow_html=True)
 
 with tabs[2]:
-    st.markdown("### Executive Summary")
+    st.markdown('<div class="section-title">Executive Summary</div>', unsafe_allow_html=True)
+
+    top_exec_left, top_exec_right = st.columns(2)
+    with top_exec_left:
+        peak_signal_color = risk_to_color(summary["next_7d_peak_level"])
+        render_text_card(
+            "Peak executive signal",
+            f"""
+            <div style="margin-bottom:0.6rem;">
+                <span class="status-pill" style="background:{peak_signal_color};">
+                    {summary["next_7d_peak_level"]}
+                </span>
+            </div>
+            <b>Peak date:</b> {summary['next_7d_peak_date'].strftime('%d.%m.%Y.')}<br>
+            <b>Peak score:</b> {summary['next_7d_peak_score']:.1f}<br>
+            <b>Next 24h ML confidence:</b> {summary['next_24h_confidence']:.2f}
+            """,
+        )
+
+    with top_exec_right:
+        readiness_color = readiness_to_color(summary["readiness_status"])
+        render_text_card(
+            "Readiness summary",
+            f"""
+            <div style="margin-bottom:0.6rem;">
+                <span class="status-pill" style="background:{readiness_color};">
+                    {summary["readiness_status"]}
+                </span>
+            </div>
+            <b>Next 24h risk:</b> {summary['next_24h_level']}<br>
+            <b>Next 72h peak:</b> {summary['next_72h_peak_level']}<br>
+            <b>High-risk days (7d):</b> {summary['high_risk_days']}
+            """,
+        )
 
     st.markdown("#### Executive brief")
     st.code(executive_brief, language="text")
@@ -1110,38 +1363,6 @@ with tabs[2]:
             key=f"dl_daily_briefing_pdf_summary_{selected_city}",
         )
     st.markdown("</div>", unsafe_allow_html=True)
-
-    ex1, ex2 = st.columns(2)
-
-    with ex1:
-        render_text_card(
-            "Peak executive signal",
-            f"""
-            <div style="margin-bottom:0.6rem;">
-                <span class="status-pill" style="background:{risk_to_color(summary["next_7d_peak_level"])};">
-                    {summary["next_7d_peak_level"]}
-                </span>
-            </div>
-            <b>Peak date:</b> {summary['next_7d_peak_date'].strftime('%d.%m.%Y.')}<br>
-            <b>Peak score:</b> {summary['next_7d_peak_score']:.1f}<br>
-            <b>Next 24h ML confidence:</b> {summary['next_24h_confidence']:.2f}
-            """,
-        )
-
-    with ex2:
-        render_text_card(
-            "Readiness summary",
-            f"""
-            <div style="margin-bottom:0.6rem;">
-                <span class="status-pill" style="background:{readiness_to_color(summary["readiness_status"])};">
-                    {summary["readiness_status"]}
-                </span>
-            </div>
-            <b>Next 24h risk:</b> {summary['next_24h_level']}<br>
-            <b>Next 72h peak:</b> {summary['next_72h_peak_level']}<br>
-            <b>High-risk days (7d):</b> {summary['high_risk_days']}
-            """,
-        )
 
     st.success(
         """

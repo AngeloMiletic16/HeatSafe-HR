@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 import plotly.express as px
@@ -13,10 +14,28 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
 from src.config import DEFAULT_CITY
+from src.decision_engine import build_city_readiness_summary
 from src.forecast_engine import make_ml_forecast
+from src.sidebar import render_app_sidebar
 from src.xai_engine import explain_escalation_row
 
-st.set_page_config(page_title="Insights", page_icon="🧠", layout="wide")
+st.set_page_config(
+    page_title="Insights | HeatSafe HR",
+    page_icon="🧠",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+st.markdown(
+    """
+    <style>
+        [data-testid="stSidebarNav"] {
+            display: none;
+        }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 OUTPUTS_DIR = PROJECT_ROOT / "outputs"
 MODELS_DIR = PROJECT_ROOT / "data" / "models"
@@ -63,6 +82,204 @@ CITIES = [
 ]
 
 
+def inject_custom_css() -> None:
+    st.markdown(
+        """
+        <style>
+        .block-container {
+            padding-top: 1.8rem;
+            padding-bottom: 2rem;
+            max-width: 1400px;
+        }
+
+        .page-hero {
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 55%, #0b3b2e 100%);
+            border-radius: 22px;
+            padding: 1.45rem 1.6rem 1.25rem 1.6rem;
+            color: white;
+            margin-bottom: 1rem;
+            border: 1px solid rgba(255,255,255,0.08);
+            box-shadow: 0 10px 28px rgba(0,0,0,0.16);
+        }
+
+        .page-hero-title {
+            font-size: 2.08rem;
+            font-weight: 800;
+            margin-bottom: 0.35rem;
+            letter-spacing: -0.02em;
+        }
+
+        .page-hero-subtitle {
+            font-size: 1rem;
+            line-height: 1.6;
+            opacity: 0.95;
+            max-width: 1100px;
+        }
+
+        .chip-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-top: 0.85rem;
+        }
+
+        .chip {
+            display: inline-block;
+            padding: 0.38rem 0.72rem;
+            border-radius: 999px;
+            background: rgba(255,255,255,0.10);
+            color: white;
+            font-size: 0.88rem;
+            font-weight: 600;
+            border: 1px solid rgba(255,255,255,0.12);
+        }
+
+        .section-title {
+            font-size: 1.38rem;
+            font-weight: 800;
+            color: #0f172a;
+            margin: 0.4rem 0 0.9rem 0;
+        }
+
+        .metric-card {
+            background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+            border: 1px solid rgba(15,23,42,0.08);
+            border-radius: 18px;
+            padding: 1rem 1rem 0.95rem 1rem;
+            box-shadow: 0 8px 24px rgba(15,23,42,0.06);
+            min-height: 112px;
+        }
+
+        .metric-label {
+            font-size: 0.8rem;
+            color: #64748b;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            margin-bottom: 0.35rem;
+        }
+
+        .metric-value {
+            font-size: 1.7rem;
+            font-weight: 800;
+            color: #0f172a;
+            line-height: 1.15;
+            margin-bottom: 0.15rem;
+            word-break: break-word;
+        }
+
+        .metric-sub {
+            font-size: 0.88rem;
+            color: #64748b;
+            line-height: 1.5;
+        }
+
+        .info-card {
+            background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+            border: 1px solid rgba(15,23,42,0.08);
+            border-radius: 18px;
+            padding: 1rem 1rem 0.9rem 1rem;
+            box-shadow: 0 8px 24px rgba(15,23,42,0.06);
+            height: 100%;
+        }
+
+        .card-title {
+            font-size: 1.08rem;
+            font-weight: 800;
+            color: #0f172a;
+            margin-bottom: 0.65rem;
+        }
+
+        .card-subtitle {
+            font-size: 0.9rem;
+            color: #64748b;
+            margin-bottom: 0.65rem;
+            line-height: 1.55;
+        }
+
+        .info-list {
+            margin: 0;
+            padding-left: 1.1rem;
+            color: #334155;
+            line-height: 1.72;
+            font-size: 0.95rem;
+        }
+
+        .note-box {
+            background: #eff6ff;
+            border-left: 5px solid #3b82f6;
+            padding: 0.95rem 1rem;
+            border-radius: 12px;
+            color: #0f172a;
+            margin-top: 0.5rem;
+            margin-bottom: 0.8rem;
+            line-height: 1.65;
+        }
+
+        .warning-box {
+            background: #fff7ed;
+            border-left: 5px solid #ea580c;
+            padding: 0.95rem 1rem;
+            border-radius: 12px;
+            color: #7c2d12;
+            margin-top: 0.5rem;
+            margin-bottom: 0.8rem;
+            line-height: 1.65;
+        }
+
+        .compact-card {
+            background: #ffffff;
+            border: 1px solid rgba(15,23,42,0.08);
+            border-radius: 18px;
+            padding: 1rem;
+            box-shadow: 0 8px 24px rgba(15,23,42,0.06);
+            height: 100%;
+        }
+
+        .compact-title {
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #64748b;
+            font-weight: 700;
+            margin-bottom: 0.35rem;
+        }
+
+        .compact-value {
+            font-size: 1.2rem;
+            font-weight: 800;
+            color: #0f172a;
+            margin-bottom: 0.25rem;
+        }
+
+        .compact-text {
+            font-size: 0.92rem;
+            color: #475569;
+            line-height: 1.62;
+        }
+
+        div[data-baseweb="tab-list"] {
+            gap: 1rem;
+            margin-top: 0.95rem;
+            margin-bottom: 0.85rem;
+            flex-wrap: wrap;
+        }
+
+        button[data-baseweb="tab"] {
+            border-radius: 12px 12px 0 0;
+            font-weight: 700;
+            padding: 0.56rem 0.95rem;
+        }
+
+        .stDataFrame, .stPlotlyChart {
+            border-radius: 14px;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 @st.cache_data
 def load_json(path: Path) -> dict:
     if not path.exists():
@@ -78,13 +295,35 @@ def load_csv(path: Path, index_col: int | None = None) -> pd.DataFrame:
     return pd.read_csv(path, index_col=index_col)
 
 
-def extract_best_metrics_multiclass(metrics_json: dict) -> dict:
+def safe_metric(value: Any, digits: int = 3) -> str:
+    try:
+        if pd.isna(value):
+            return "N/A"
+        return f"{float(value):.{digits}f}"
+    except Exception:
+        return "N/A"
+
+
+def resolve_best_model_metrics(metrics_json: dict) -> tuple[str, dict]:
     if not metrics_json:
+        return "N/A", {}
+
+    best_model_name = metrics_json.get("best_model", "N/A")
+
+    if isinstance(metrics_json.get(best_model_name), dict):
+        return best_model_name, metrics_json.get(best_model_name, {})
+
+    models_block = metrics_json.get("models", {})
+    if isinstance(models_block, dict) and isinstance(models_block.get(best_model_name), dict):
+        return best_model_name, models_block.get(best_model_name, {})
+
+    return best_model_name, {}
+
+
+def extract_best_metrics_multiclass(metrics_json: dict) -> dict:
+    best_model_name, best_metrics = resolve_best_model_metrics(metrics_json)
+    if best_model_name == "N/A" and not best_metrics:
         return {}
-    best_model_name = metrics_json.get("best_model")
-    if not best_model_name:
-        return {}
-    best_metrics = metrics_json.get(best_model_name, {})
     return {
         "best_model": best_model_name,
         "accuracy": best_metrics.get("accuracy"),
@@ -94,21 +333,9 @@ def extract_best_metrics_multiclass(metrics_json: dict) -> dict:
 
 
 def extract_best_metrics_escalation(metrics_json: dict) -> dict:
-    if not metrics_json:
+    best_model_name, best_metrics = resolve_best_model_metrics(metrics_json)
+    if best_model_name == "N/A" and not best_metrics:
         return {}
-
-    best_model_name = metrics_json.get("best_model")
-    if not best_model_name:
-        return {}
-
-    models_block = metrics_json.get("models", {})
-    if not isinstance(models_block, dict):
-        return {"best_model": best_model_name}
-
-    best_metrics = models_block.get(best_model_name, {})
-    if not isinstance(best_metrics, dict):
-        return {"best_model": best_model_name}
-
     return {
         "best_model": best_model_name,
         "accuracy": best_metrics.get("accuracy"),
@@ -118,6 +345,7 @@ def extract_best_metrics_escalation(metrics_json: dict) -> dict:
         "f1_positive": best_metrics.get("f1_positive"),
         "roc_auc": best_metrics.get("roc_auc"),
     }
+
 
 def build_model_comparison_df(v1: dict, v2: dict, v3: dict) -> pd.DataFrame:
     rows = []
@@ -164,7 +392,11 @@ def build_model_comparison_df(v1: dict, v2: dict, v3: dict) -> pd.DataFrame:
             }
         )
 
-    return pd.DataFrame(rows)
+    out = pd.DataFrame(rows)
+    for col in ["Accuracy", "Macro F1", "Weighted F1", "Positive F1", "ROC AUC"]:
+        if col in out.columns:
+            out[col] = out[col].apply(lambda x: round(float(x), 3) if pd.notna(x) else None)
+    return out
 
 
 def build_confusion_heatmap(df: pd.DataFrame, title: str):
@@ -178,7 +410,7 @@ def build_confusion_heatmap(df: pd.DataFrame, title: str):
         title=title,
     )
     fig.update_layout(
-        margin=dict(l=20, r=20, t=50, b=20),
+        margin=dict(l=20, r=20, t=55, b=20),
         xaxis_title="Predicted",
         yaxis_title="Actual",
     )
@@ -204,7 +436,8 @@ def build_top_features_chart(df: pd.DataFrame, title: str, top_n: int = 15):
     if importance_col is None or feature_col is None:
         return None
 
-    top_df = df[[feature_col, importance_col]].copy().head(top_n)
+    top_df = df[[feature_col, importance_col]].copy()
+    top_df = top_df.sort_values(importance_col, ascending=False).head(top_n)
     top_df = top_df.sort_values(importance_col, ascending=True)
 
     fig = px.bar(
@@ -217,29 +450,20 @@ def build_top_features_chart(df: pd.DataFrame, title: str, top_n: int = 15):
     fig.update_layout(
         xaxis_title="Importance",
         yaxis_title="Feature",
-        margin=dict(l=20, r=20, t=50, b=20),
+        margin=dict(l=20, r=20, t=55, b=20),
     )
     return fig
 
 
 def build_error_examples(df: pd.DataFrame) -> pd.DataFrame:
-    if df.empty:
-        return df
-
-    if "correct_prediction" not in df.columns:
+    if df.empty or "correct_prediction" not in df.columns:
         return pd.DataFrame()
 
     errors = df[df["correct_prediction"] == 0].copy()
     if errors.empty:
         return errors
 
-    cols = [
-        "city",
-        "date",
-        "true_label",
-        "predicted_label",
-        "heat_risk_score",
-    ]
+    cols = ["city", "date", "true_label", "predicted_label", "heat_risk_score"]
     keep_cols = [c for c in cols if c in errors.columns]
     errors = errors[keep_cols].copy()
 
@@ -250,26 +474,27 @@ def build_error_examples(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_class_report_chart(report_df: pd.DataFrame, title: str):
-    if report_df.empty or "Unnamed: 0" not in report_df.columns:
+    if report_df.empty:
         return None
 
+    label_col = "Unnamed: 0" if "Unnamed: 0" in report_df.columns else report_df.columns[0]
     class_rows = report_df[
-        report_df["Unnamed: 0"].isin(["Nizak", "Umjeren", "Visok", "Vrlo visok"])
+        report_df[label_col].isin(["Nizak", "Umjeren", "Visok", "Vrlo visok"])
     ].copy()
 
     if class_rows.empty:
         return None
 
     melted = class_rows.melt(
-        id_vars="Unnamed: 0",
-        value_vars=["precision", "recall", "f1-score"],
+        id_vars=label_col,
+        value_vars=[c for c in ["precision", "recall", "f1-score"] if c in class_rows.columns],
         var_name="metric",
         value_name="value",
     )
 
     fig = px.bar(
         melted,
-        x="Unnamed: 0",
+        x=label_col,
         y="value",
         color="metric",
         barmode="group",
@@ -278,7 +503,7 @@ def build_class_report_chart(report_df: pd.DataFrame, title: str):
     fig.update_layout(
         xaxis_title="Klasa",
         yaxis_title="Vrijednost",
-        margin=dict(l=20, r=20, t=50, b=20),
+        margin=dict(l=20, r=20, t=55, b=20),
     )
     return fig
 
@@ -288,7 +513,7 @@ def build_v3_threshold_chart(df: pd.DataFrame):
         return None
 
     metric_cols = [c for c in ["precision_positive", "recall_positive", "f1_positive", "accuracy"] if c in df.columns]
-    if not metric_cols or "threshold" not in df.columns:
+    if "threshold" not in df.columns or not metric_cols:
         return None
 
     melted = df.melt(
@@ -309,7 +534,7 @@ def build_v3_threshold_chart(df: pd.DataFrame):
     fig.update_layout(
         xaxis_title="Threshold",
         yaxis_title="Score",
-        margin=dict(l=20, r=20, t=50, b=20),
+        margin=dict(l=20, r=20, t=55, b=20),
     )
     return fig
 
@@ -334,7 +559,7 @@ def build_v3_classification_summary_df(report_json: dict) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def build_v3_error_examples(df: pd.DataFrame, title_type: str) -> pd.DataFrame:
+def build_v3_error_examples(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return df
 
@@ -351,12 +576,12 @@ def build_v3_error_examples(df: pd.DataFrame, title_type: str) -> pd.DataFrame:
     if "date" in out.columns:
         out["date"] = pd.to_datetime(out["date"]).dt.strftime("%d.%m.%Y.")
 
-    if "actual_escalation_72h" in out.columns:
-        out = out.rename(columns={"actual_escalation_72h": "actual"})
-    if "predicted_escalation_72h" in out.columns:
-        out = out.rename(columns={"predicted_escalation_72h": "predicted"})
-    if "predicted_escalation_probability" in out.columns:
-        out = out.rename(columns={"predicted_escalation_probability": "probability"})
+    rename_map = {
+        "actual_escalation_72h": "actual",
+        "predicted_escalation_72h": "predicted",
+        "predicted_escalation_probability": "probability",
+    }
+    out = out.rename(columns=rename_map)
 
     return out.head(25)
 
@@ -391,126 +616,7 @@ def render_list_card(title: str, items: list[str], subtitle: str = "") -> None:
     )
 
 
-st.markdown(
-    """
-    <style>
-    .block-container {
-        padding-top: 1.6rem;
-        padding-bottom: 2rem;
-        max-width: 1400px;
-    }
-
-    .page-hero {
-        background: linear-gradient(135deg, #0f172a 0%, #1e293b 55%, #0b3b2e 100%);
-        border-radius: 22px;
-        padding: 1.35rem 1.5rem 1.2rem 1.5rem;
-        color: white;
-        margin-bottom: 1rem;
-        border: 1px solid rgba(255,255,255,0.08);
-        box-shadow: 0 10px 28px rgba(0,0,0,0.16);
-    }
-
-    .page-hero-title {
-        font-size: 2rem;
-        font-weight: 800;
-        margin-bottom: 0.35rem;
-    }
-
-    .page-hero-subtitle {
-        font-size: 0.98rem;
-        line-height: 1.6;
-        opacity: 0.95;
-    }
-
-    .metric-card {
-        background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
-        border: 1px solid rgba(15,23,42,0.08);
-        border-radius: 18px;
-        padding: 0.95rem 1rem;
-        box-shadow: 0 8px 24px rgba(15,23,42,0.06);
-        min-height: 112px;
-    }
-
-    .metric-label {
-        font-size: 0.8rem;
-        color: #64748b;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.03em;
-        margin-bottom: 0.35rem;
-    }
-
-    .metric-value {
-        font-size: 1.7rem;
-        font-weight: 800;
-        color: #0f172a;
-        line-height: 1.15;
-        margin-bottom: 0.15rem;
-    }
-
-    .metric-sub {
-        font-size: 0.88rem;
-        color: #64748b;
-    }
-
-    .info-card {
-        background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
-        border: 1px solid rgba(15,23,42,0.08);
-        border-radius: 18px;
-        padding: 1rem 1rem 0.9rem 1rem;
-        box-shadow: 0 8px 24px rgba(15,23,42,0.06);
-        height: 100%;
-    }
-
-    .card-title {
-        font-size: 1.08rem;
-        font-weight: 800;
-        color: #0f172a;
-        margin-bottom: 0.65rem;
-    }
-
-    .card-subtitle {
-        font-size: 0.9rem;
-        color: #64748b;
-        margin-bottom: 0.65rem;
-        line-height: 1.55;
-    }
-
-    .info-list {
-        margin: 0;
-        padding-left: 1.1rem;
-        color: #334155;
-        line-height: 1.7;
-        font-size: 0.95rem;
-    }
-
-    .note-box {
-        background: #eff6ff;
-        border-left: 5px solid #3b82f6;
-        padding: 0.95rem 1rem;
-        border-radius: 12px;
-        color: #0f172a;
-        margin-top: 0.5rem;
-        margin-bottom: 0.7rem;
-        line-height: 1.6;
-    }
-
-    div[data-baseweb="tab-list"] {
-        gap: 1.2rem;
-        margin-top: 0.9rem;
-        margin-bottom: 0.8rem;
-        flex-wrap: wrap;
-    }
-
-    button[data-baseweb="tab"] {
-        border-radius: 12px 12px 0 0;
-        font-weight: 700;
-        padding: 0.55rem 0.9rem;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+inject_custom_css()
 
 st.markdown(
     """
@@ -518,19 +624,25 @@ st.markdown(
         <div class="page-hero-title">🧠 Insights / AI & Research Layer</div>
         <div class="page-hero-subtitle">
             Ova stranica prikazuje AI/ML srce sustava HeatSafe HR: usporedbu modela,
-            confusion matrix, feature importance, threshold tuning, tipične greške
-            i explainable AI sloj za v3 escalation model.
+            confusion matrix, feature importance, threshold tuning, primjere pogrešaka
+            i live explainable AI sloj za v3 escalation model.
+        </div>
+        <div class="chip-row">
+            <span class="chip">Model Comparison</span>
+            <span class="chip">Strict Validation</span>
+            <span class="chip">Escalation v3</span>
+            <span class="chip">Threshold Tuning</span>
+            <span class="chip">XAI</span>
+            <span class="chip">Research Credibility</span>
         </div>
     </div>
     """,
     unsafe_allow_html=True,
 )
 
-# ---- Load data ----
 metrics_v1_raw = load_json(METRICS_V1_PATH)
 metrics_v2_raw = load_json(METRICS_V2_PATH)
 metrics_v3_raw = load_json(METRICS_V3_PATH)
-
 
 metrics_v1 = extract_best_metrics_multiclass(metrics_v1_raw)
 metrics_v2 = extract_best_metrics_multiclass(metrics_v2_raw)
@@ -562,16 +674,15 @@ threshold_v3 = load_csv(THRESHOLD_V3_PATH)
 threshold_summary_v3 = load_json(THRESHOLD_SUMMARY_V3_PATH)
 analysis_summary_v3 = load_json(ANALYSIS_SUMMARY_V3_PATH)
 
-# ---- Top controls for live XAI ----
 default_city = st.session_state.get("selected_city", DEFAULT_CITY)
 default_index = CITIES.index(default_city) if default_city in CITIES else 0
 
-top1, top2 = st.columns([1, 1])
+st.markdown('<div class="section-title">Live XAI control panel</div>', unsafe_allow_html=True)
 
+top1, top2 = st.columns([1, 1])
 with top1:
     selected_city = st.selectbox("Odaberi grad za live XAI demo", CITIES, index=default_index)
     st.session_state.selected_city = selected_city
-
 with top2:
     xai_scenario_enabled = st.toggle("Scenario mode za XAI demo", value=True)
 
@@ -595,13 +706,20 @@ try:
         humidity_delta=xai_humidity_delta,
         wind_delta=xai_wind_delta,
     )
-    xai_input_row = xai_forecast_df.sort_values("date").head(1).copy()
-    if "city" not in xai_input_row.columns:
-        xai_input_row["city"] = selected_city
-    xai_summary = explain_escalation_row(xai_input_row)
+    xai_summary_row = xai_forecast_df.sort_values("date").head(1).copy()
+    if "city" not in xai_summary_row.columns:
+        xai_summary_row["city"] = selected_city
+
+    xai_readiness_summary = build_city_readiness_summary(selected_city, xai_forecast_df)
+    xai_summary = explain_escalation_row(xai_summary_row)
+    sidebar_risk_level = xai_readiness_summary["next_24h_level"]
+    sidebar_readiness = xai_readiness_summary["readiness_status"]
+    sidebar_probability = xai_summary.get("probability")
+    sidebar_label = xai_summary.get("label")
 except Exception as exc:
     xai_forecast_df = pd.DataFrame()
-    xai_input_row = pd.DataFrame()
+    xai_summary_row = pd.DataFrame()
+    xai_readiness_summary = {}
     xai_summary = {
         "method": "error",
         "probability": None,
@@ -610,44 +728,91 @@ except Exception as exc:
         "top_protective_drivers": [],
         "explanation_text": f"XAI demo nije dostupan: {exc}",
     }
+    sidebar_risk_level = None
+    sidebar_readiness = None
+    sidebar_probability = None
+    sidebar_label = None
 
-# ---- Summary cards ----
+render_app_sidebar(
+    selected_city=selected_city,
+    risk_level=sidebar_risk_level,
+    readiness_status=sidebar_readiness,
+    escalation_label=sidebar_label,
+    escalation_probability=sidebar_probability,
+)
+
+st.markdown(
+    f"""
+    <div class="note-box">
+        <b>Research framing:</b> Insights služi kao dokaz da HeatSafe HR nije samo lijepo sučelje,
+        nego stvaran AI/ML sustav s više modelnih slojeva, validacijom, analizom pogrešaka,
+        threshold tuningom i explainability komponentom. Trenutni live XAI demo fokusiran je na grad
+        <b>{selected_city}</b> uz scenario mode <b>{"enabled" if xai_scenario_enabled else "disabled"}</b>.
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
 k1, k2, k3, k4 = st.columns(4)
 with k1:
     render_metric_card(
         "Production Macro F1",
-        f"{metrics_v1.get('macro_f1', 'N/A')}",
+        safe_metric(metrics_v1.get("macro_f1")),
         str(metrics_v1.get("best_model", "N/A")),
     )
 with k2:
     render_metric_card(
         "Strict Macro F1",
-        f"{metrics_v2.get('macro_f1', 'N/A')}",
+        safe_metric(metrics_v2.get("macro_f1")),
         str(metrics_v2.get("best_model", "N/A")),
     )
 with k3:
     render_metric_card(
         "Escalation F1+",
-        f"{metrics_v3.get('f1_positive', 'N/A')}",
+        safe_metric(metrics_v3.get("f1_positive")),
         str(metrics_v3.get("best_model", "N/A")),
     )
 with k4:
     render_metric_card(
         "Escalation ROC AUC",
-        f"{metrics_v3.get('roc_auc', 'N/A')}",
+        safe_metric(metrics_v3.get("roc_auc")),
         "v3 early-warning model",
     )
 
-st.markdown(
-    """
-    <div class="note-box">
-        HeatSafe HR sada više nije samo weather dashboard. 
-        Sustav kombinira multiclass procjenu rizika (v1, v2), 72h escalation early-warning model (v3),
-        threshold tuning, explainable AI i operativne briefove za stvarnu decision-support upotrebu.
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
+top_left, top_right = st.columns([1.15, 1])
+with top_left:
+    st.markdown(
+        f"""
+        <div class="compact-card">
+            <div class="compact-title">Current live XAI signal</div>
+            <div class="compact-value">{selected_city}</div>
+            <div class="compact-text">
+                <b>Probability:</b> {safe_metric(xai_summary.get("probability"), 2)}<br>
+                <b>Label:</b> {xai_summary.get("label", "N/A")}<br>
+                <b>Method:</b> {xai_summary.get("method", "N/A")}<br>
+                <b>Next 24h readiness:</b> {xai_readiness_summary.get("readiness_status", "N/A")}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+with top_right:
+    best_threshold = threshold_summary_v3.get("best_by_f1", {}).get("threshold", "N/A")
+    st.markdown(
+        f"""
+        <div class="compact-card">
+            <div class="compact-title">v3 tuning signal</div>
+            <div class="compact-value">{best_threshold}</div>
+            <div class="compact-text">
+                Najjači threshold po F1 za escalation model koristi se kao važan dio
+                interpretacije i alert logike. Ovo je bitno jer sustav mora znati kada
+                biti osjetljiv, a kada izbjeći prealarmističan output.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 tabs = st.tabs(
     [
@@ -658,9 +823,8 @@ tabs = st.tabs(
     ]
 )
 
-# ---- Tab 1: comparison ----
 with tabs[0]:
-    st.markdown("## Usporedba modela")
+    st.markdown('<div class="section-title">Model comparison</div>', unsafe_allow_html=True)
 
     if not comparison_df.empty:
         st.dataframe(comparison_df, use_container_width=True, hide_index=True)
@@ -673,10 +837,10 @@ with tabs[0]:
             "Što predstavljaju modeli",
             [
                 "Production model (v1) služi za operativnu multiclass procjenu toplinskog rizika.",
-                "Strict model (v2) daje metodološki strožu validaciju bez oslanjanja na risk-score featuree.",
-                "Escalation model (v3) predviđa postoji li vjerojatna eskalacija u sljedeća 72 sata.",
+                "Strict model (v2) daje metodološki strožu validaciju bez oslanjanja na risk-score shortcut featuree.",
+                "Escalation model (v3) predviđa postoji li vjerojatna eskalacija unutar sljedeća 72 sata.",
             ],
-            "Tri modelna sloja zajedno dižu vjerodostojnost i korisnost sustava.",
+            "Tri modelna sloja zajedno dižu vjerodostojnost i praktičnu vrijednost sustava.",
         )
 
     with c2:
@@ -687,7 +851,7 @@ with tabs[0]:
                 "v2 jača research credibility projekta.",
                 "v3 dodaje early-warning dimenziju i diže decision-support kvalitetu.",
             ],
-            "Ova kombinacija pokazuje da projekt nije samo vizualizacija nego stvaran AI/ML sustav.",
+            "Zajedno pokazuju da HeatSafe HR nije samo dashboard nego ozbiljna AI/ML platforma.",
         )
 
     st.markdown(
@@ -700,9 +864,8 @@ with tabs[0]:
         unsafe_allow_html=True,
     )
 
-# ---- Tab 2: v1 and v2 ----
 with tabs[1]:
-    st.markdown("## Production vs Strict model analysis")
+    st.markdown('<div class="section-title">Production vs Strict model analysis</div>', unsafe_allow_html=True)
 
     st.markdown("### Confusion matrix")
     cm1, cm2 = st.columns(2)
@@ -780,33 +943,32 @@ with tabs[1]:
         else:
             st.info("Nema dostupnih pogrešnih primjera za strict model.")
 
-# ---- Tab 3: v3 ----
 with tabs[2]:
-    st.markdown("## Escalation model v3")
+    st.markdown('<div class="section-title">Escalation model v3</div>', unsafe_allow_html=True)
 
     v31, v32, v33, v34 = st.columns(4)
     with v31:
         render_metric_card(
             "Accuracy",
-            f"{metrics_v3.get('accuracy', 'N/A')}",
+            safe_metric(metrics_v3.get("accuracy")),
             str(metrics_v3.get("best_model", "N/A")),
         )
     with v32:
         render_metric_card(
             "Precision positive",
-            f"{metrics_v3.get('precision_positive', 'N/A')}",
+            safe_metric(metrics_v3.get("precision_positive")),
             "Positive class",
         )
     with v33:
         render_metric_card(
             "Recall positive",
-            f"{metrics_v3.get('recall_positive', 'N/A')}",
+            safe_metric(metrics_v3.get("recall_positive")),
             "Positive class",
         )
     with v34:
         render_metric_card(
             "F1 positive",
-            f"{metrics_v3.get('f1_positive', 'N/A')}",
+            safe_metric(metrics_v3.get("f1_positive")),
             "Positive class",
         )
 
@@ -863,18 +1025,42 @@ with tabs[2]:
         else:
             st.info("Top featurei za v3 nisu dostupni.")
 
+    extra_left, extra_right = st.columns(2)
+    with extra_left:
+        render_list_card(
+            "Operational meaning of v3",
+            [
+                "v3 nije zamjena za forecast nego dodatni early-warning sloj.",
+                "Najkorisniji je kada signal upozori na pogoršanje prije stvarnog vršnog dana.",
+                "Posebno je vrijedan za readiness, alerting i proaktivnu komunikaciju.",
+            ],
+            "Escalation model treba čitati kao decision-support signal, ne kao samostalni weather output.",
+        )
+    with extra_right:
+        render_list_card(
+            "Saved analysis summary",
+            [
+                f"Train rows: {analysis_summary_v3.get('train_rows', 'N/A')}",
+                f"Test rows: {analysis_summary_v3.get('test_rows', 'N/A')}",
+                f"Split date: {analysis_summary_v3.get('split_date', 'N/A')}",
+                f"Saved best model: {analysis_summary_v3.get('saved_best_model', 'N/A')}",
+                f"Top feature count: {analysis_summary_v3.get('top_feature_count', 'N/A')}",
+            ],
+            "Ovo je korisno za research dokumentaciju i kasnije metodološko obrazlaganje.",
+        )
+
     st.markdown("### False positives / false negatives")
     fp_col, fn_col = st.columns(2)
     with fp_col:
         st.markdown("#### False positives")
-        fp_df = build_v3_error_examples(false_pos_v3, "false_positive")
+        fp_df = build_v3_error_examples(false_pos_v3)
         if not fp_df.empty:
             st.dataframe(fp_df, use_container_width=True, hide_index=True)
         else:
             st.info("False positives nisu dostupni.")
     with fn_col:
         st.markdown("#### False negatives")
-        fn_df = build_v3_error_examples(false_neg_v3, "false_negative")
+        fn_df = build_v3_error_examples(false_neg_v3)
         if not fn_df.empty:
             st.dataframe(fn_df, use_container_width=True, hide_index=True)
         else:
@@ -883,16 +1069,15 @@ with tabs[2]:
     st.markdown(
         """
         <div class="note-box">
-            v3 nije zamišljen kao zamjena za forecast, nego kao dodatni early-warning sloj koji operaterima
-            i gradovima daje signal da bi se situacija mogla pogoršati prije nego što peak stvarno nastupi.
+            v3 je zamišljen kao rani signal koji operaterima i gradovima daje upozorenje
+            da bi se situacija mogla pogoršati prije nego što peak stvarno nastupi.
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-# ---- Tab 4: XAI ----
 with tabs[3]:
-    st.markdown("## Live XAI demo for v3 escalation signal")
+    st.markdown('<div class="section-title">Live XAI demo for v3 escalation signal</div>', unsafe_allow_html=True)
 
     x1, x2, x3 = st.columns(3)
     with x1:
@@ -904,7 +1089,7 @@ with tabs[3]:
     with x2:
         render_metric_card(
             "72h probability",
-            f"{xai_summary.get('probability'):.2f}" if xai_summary.get("probability") is not None else "N/A",
+            safe_metric(xai_summary.get("probability"), 2),
             "Escalation probability",
         )
     with x3:
@@ -926,6 +1111,16 @@ with tabs[3]:
         """,
         unsafe_allow_html=True,
     )
+
+    if xai_summary.get("method") == "error":
+        st.markdown(
+            f"""
+            <div class="warning-box">
+                <b>XAI demo warning:</b> {xai_summary.get("explanation_text", "XAI demo nije dostupan.")}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
     lx1, lx2 = st.columns(2)
     with lx1:
@@ -951,7 +1146,7 @@ with tabs[3]:
     st.info(xai_summary.get("explanation_text", "Nema dostupnog lokalnog objašnjenja."))
 
     st.markdown("### Input signal used for explanation")
-    if not xai_input_row.empty:
+    if not xai_summary_row.empty:
         show_cols = [
             c for c in [
                 "city",
@@ -967,9 +1162,9 @@ with tabs[3]:
                 "ml_predicted_label",
                 "ml_prediction_confidence",
             ]
-            if c in xai_input_row.columns
+            if c in xai_summary_row.columns
         ]
-        signal_df = xai_input_row[show_cols].copy()
+        signal_df = xai_summary_row[show_cols].copy()
         if "date" in signal_df.columns:
             signal_df["date"] = pd.to_datetime(signal_df["date"]).dt.strftime("%d.%m.%Y.")
         st.dataframe(signal_df, use_container_width=True, hide_index=True)
