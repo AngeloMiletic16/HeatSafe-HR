@@ -62,7 +62,6 @@ REPORT_V3_JSON_PATH = MODEL_ANALYSIS_ESCALATION_DIR / "classification_report_esc
 
 PRED_V1_PATH = MODEL_ANALYSIS_DIR / "test_predictions_detailed.csv"
 PRED_V2_PATH = MODEL_ANALYSIS_STRICT_DIR / "test_predictions_detailed_strict.csv"
-PRED_V3_PATH = MODELS_DIR / "test_predictions_escalation.csv"
 
 FALSE_POS_V3_PATH = MODEL_ANALYSIS_ESCALATION_DIR / "false_positives_escalation.csv"
 FALSE_NEG_V3_PATH = MODEL_ANALYSIS_ESCALATION_DIR / "false_negatives_escalation.csv"
@@ -178,7 +177,7 @@ def inject_custom_css() -> None:
             background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
             border: 1px solid rgba(15,23,42,0.08);
             border-radius: 18px;
-            padding: 1rem 1rem 0.9rem 1rem;
+            padding: 1rem 1rem 0.95rem 1rem;
             box-shadow: 0 8px 24px rgba(15,23,42,0.06);
             height: 100%;
         }
@@ -211,7 +210,18 @@ def inject_custom_css() -> None:
             padding: 0.95rem 1rem;
             border-radius: 12px;
             color: #0f172a;
-            margin-top: 0.5rem;
+            margin-top: 0.55rem;
+            margin-bottom: 0.8rem;
+            line-height: 1.65;
+        }
+
+        .success-box {
+            background: #ecfdf5;
+            border-left: 5px solid #22c55e;
+            padding: 0.95rem 1rem;
+            border-radius: 12px;
+            color: #166534;
+            margin-top: 0.55rem;
             margin-bottom: 0.8rem;
             line-height: 1.65;
         }
@@ -222,7 +232,7 @@ def inject_custom_css() -> None:
             padding: 0.95rem 1rem;
             border-radius: 12px;
             color: #7c2d12;
-            margin-top: 0.5rem;
+            margin-top: 0.55rem;
             margin-bottom: 0.8rem;
             line-height: 1.65;
         }
@@ -302,6 +312,19 @@ def safe_metric(value: Any, digits: int = 3) -> str:
         return f"{float(value):.{digits}f}"
     except Exception:
         return "N/A"
+
+
+def is_missing_value(value: Any) -> bool:
+    if value is None:
+        return True
+    try:
+        if pd.isna(value):
+            return True
+    except Exception:
+        pass
+    if isinstance(value, str) and value.strip().upper() in {"", "N/A", "NONE", "NULL"}:
+        return True
+    return False
 
 
 def resolve_best_model_metrics(metrics_json: dict) -> tuple[str, dict]:
@@ -485,9 +508,13 @@ def build_class_report_chart(report_df: pd.DataFrame, title: str):
     if class_rows.empty:
         return None
 
+    value_cols = [c for c in ["precision", "recall", "f1-score"] if c in class_rows.columns]
+    if not value_cols:
+        return None
+
     melted = class_rows.melt(
         id_vars=label_col,
-        value_vars=[c for c in ["precision", "recall", "f1-score"] if c in class_rows.columns],
+        value_vars=value_cols,
         var_name="metric",
         value_name="value",
     )
@@ -556,7 +583,11 @@ def build_v3_classification_summary_df(report_json: dict) -> pd.DataFrame:
                 }
             )
 
-    return pd.DataFrame(rows)
+    out = pd.DataFrame(rows)
+    for col in ["Precision", "Recall", "F1-score"]:
+        if col in out.columns:
+            out[col] = out[col].apply(lambda x: round(float(x), 4) if pd.notna(x) else None)
+    return out
 
 
 def build_v3_error_examples(df: pd.DataFrame) -> pd.DataFrame:
@@ -583,7 +614,30 @@ def build_v3_error_examples(df: pd.DataFrame) -> pd.DataFrame:
     }
     out = out.rename(columns=rename_map)
 
+    if "probability" in out.columns:
+        out["probability"] = out["probability"].apply(lambda x: round(float(x), 4) if pd.notna(x) else None)
+
     return out.head(25)
+
+
+def build_saved_analysis_items(analysis_summary: dict) -> list[str]:
+    raw_pairs = [
+        ("Train rows", analysis_summary.get("train_rows")),
+        ("Test rows", analysis_summary.get("test_rows")),
+        ("Split date", analysis_summary.get("split_date")),
+        ("Saved best model", analysis_summary.get("saved_best_model")),
+        ("Top feature count", analysis_summary.get("top_feature_count")),
+    ]
+
+    items = [f"{label}: {value}" for label, value in raw_pairs if not is_missing_value(value)]
+
+    if not items:
+        items = [
+            "Saved summary nije dostupan u ovoj build verziji.",
+            "To ne utječe na operativni prikaz modela, već samo na research metadata block.",
+        ]
+
+    return items
 
 
 def render_metric_card(label: str, value: str, subtitle: str = "") -> None:
@@ -665,7 +719,6 @@ report_v3_df = build_v3_classification_summary_df(report_v3_json)
 
 pred_v1 = load_csv(PRED_V1_PATH)
 pred_v2 = load_csv(PRED_V2_PATH)
-pred_v3 = load_csv(PRED_V3_PATH)
 
 false_pos_v3 = load_csv(FALSE_POS_V3_PATH)
 false_neg_v3 = load_csv(FALSE_NEG_V3_PATH)
@@ -707,11 +760,13 @@ try:
         wind_delta=xai_wind_delta,
     )
     xai_summary_row = xai_forecast_df.sort_values("date").head(1).copy()
+
     if "city" not in xai_summary_row.columns:
         xai_summary_row["city"] = selected_city
 
     xai_readiness_summary = build_city_readiness_summary(selected_city, xai_forecast_df)
     xai_summary = explain_escalation_row(xai_summary_row)
+
     sidebar_risk_level = xai_readiness_summary["next_24h_level"]
     sidebar_readiness = xai_readiness_summary["readiness_status"]
     sidebar_probability = xai_summary.get("probability")
@@ -780,6 +835,7 @@ with k4:
     )
 
 top_left, top_right = st.columns([1.15, 1])
+
 with top_left:
     st.markdown(
         f"""
@@ -864,6 +920,17 @@ with tabs[0]:
         unsafe_allow_html=True,
     )
 
+    st.markdown(
+        """
+        <div class="success-box">
+            <b>Zaključak:</b> HeatSafe HR sada kombinira operativni multiclass model, strožu validacijsku verziju,
+            72h escalation early-warning model i explainable AI sloj. To projektu daje i praktičnu
+            vrijednost i research credibility.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
 with tabs[1]:
     st.markdown('<div class="section-title">Production vs Strict model analysis</div>', unsafe_allow_html=True)
 
@@ -881,6 +948,17 @@ with tabs[1]:
             st.plotly_chart(fig_conf_v2, use_container_width=True)
         else:
             st.info("Confusion matrix za strict model nije dostupna.")
+
+    st.markdown(
+        """
+        <div class="note-box">
+            <b>Interpretation:</b> Production i strict pristup ostaju dominantno vođeni temperaturnim i
+            apparent-temperature signalima. To podupire meteorološku uvjerljivost modela, a ne proizvoljno
+            ponašanje temeljem jednog internog shortcut featurea.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     st.markdown("### Najvažniji featurei")
     fi1, fi2 = st.columns(2)
@@ -942,6 +1020,16 @@ with tabs[1]:
             st.dataframe(err_v2, use_container_width=True, hide_index=True)
         else:
             st.info("Nema dostupnih pogrešnih primjera za strict model.")
+
+    st.markdown(
+        """
+        <div class="success-box">
+            <b>Operational takeaway:</b> Ako strict model ostaje blizu production modelu, to je snažan signal
+            da sustav ima stvarnu prediktivnu vrijednost i da nije samo “risk-score wrapper”.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 with tabs[2]:
     st.markdown('<div class="section-title">Escalation model v3</div>', unsafe_allow_html=True)
@@ -1039,14 +1127,8 @@ with tabs[2]:
     with extra_right:
         render_list_card(
             "Saved analysis summary",
-            [
-                f"Train rows: {analysis_summary_v3.get('train_rows', 'N/A')}",
-                f"Test rows: {analysis_summary_v3.get('test_rows', 'N/A')}",
-                f"Split date: {analysis_summary_v3.get('split_date', 'N/A')}",
-                f"Saved best model: {analysis_summary_v3.get('saved_best_model', 'N/A')}",
-                f"Top feature count: {analysis_summary_v3.get('top_feature_count', 'N/A')}",
-            ],
-            "Ovo je korisno za research dokumentaciju i kasnije metodološko obrazlaganje.",
+            build_saved_analysis_items(analysis_summary_v3),
+            "Research metadata blok je očišćen tako da prikazuje samo stvarno dostupne sačuvane informacije.",
         )
 
     st.markdown("### False positives / false negatives")
@@ -1071,6 +1153,16 @@ with tabs[2]:
         <div class="note-box">
             v3 je zamišljen kao rani signal koji operaterima i gradovima daje upozorenje
             da bi se situacija mogla pogoršati prije nego što peak stvarno nastupi.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        """
+        <div class="success-box">
+            <b>Decision-support takeaway:</b> Snaga v3 nije samo u točnosti, nego u tome što dodaje
+            vremensku dubinu sustavu i podiže kvalitetu readiness, alerting i public communication logike.
         </div>
         """,
         unsafe_allow_html=True,
@@ -1152,15 +1244,12 @@ with tabs[3]:
                 "city",
                 "date",
                 "temp_max",
-                "temp_min",
                 "apparent_temp_max",
-                "apparent_temp_mean",
                 "humidity_mean",
                 "wind_speed_mean",
                 "heuristic_risk_level",
                 "heuristic_risk_score",
                 "ml_predicted_label",
-                "ml_prediction_confidence",
             ]
             if c in xai_summary_row.columns
         ]
@@ -1181,10 +1270,13 @@ with tabs[3]:
         unsafe_allow_html=True,
     )
 
-st.success(
+st.markdown(
     """
-    Zaključak: HeatSafe HR sada kombinira operativni multiclass model, strožu validacijsku verziju,
-    72h escalation early-warning model i explainable AI sloj. To projektu daje i praktičnu vrijednost
-    i research credibility.
-    """
+    <div class="success-box">
+        <b>Zaključak:</b> HeatSafe HR kombinira operativni multiclass model, strožu validacijsku verziju,
+        72h escalation early-warning model i explainable AI sloj. Time platforma dobiva i praktičnu
+        decision-support vrijednost i research credibility potrebnu za ozbiljan demo i natjecateljski pitch.
+    </div>
+    """,
+    unsafe_allow_html=True,
 )

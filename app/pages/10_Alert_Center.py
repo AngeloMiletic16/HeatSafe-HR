@@ -299,6 +299,13 @@ def safe_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
+def format_date(value: Any) -> str:
+    try:
+        return pd.to_datetime(value).strftime("%d.%m.%Y.")
+    except Exception:
+        return str(value)
+
+
 def metric_card(label: str, value: str, sub: str = "") -> None:
     st.markdown(
         f"""
@@ -351,8 +358,77 @@ def build_live_escalation_snapshot(city: str, forecast_df: pd.DataFrame) -> dict
     }
 
 
+def build_communication_payload(
+    city: str,
+    summary: dict[str, Any],
+    selected_row: pd.Series,
+    forecast_df: pd.DataFrame,
+) -> dict[str, Any]:
+    """
+    Normalizira payload za communication layer tako da svi tekstovi koriste
+    iste readiness / peak / severity / escalation vrijednosti kao ostatak Alert Centera.
+    """
+    first_date = None
+    if not forecast_df.empty and "date" in forecast_df.columns:
+        first_date = pd.to_datetime(forecast_df.sort_values("date").iloc[0]["date"])
+
+    target_audience_raw = selected_row.get("target_audience", "")
+    if isinstance(target_audience_raw, str):
+        target_audience_list = [x.strip() for x in target_audience_raw.split(",") if x.strip()]
+    elif isinstance(target_audience_raw, list):
+        target_audience_list = target_audience_raw
+    else:
+        target_audience_list = []
+
+    next_24h_level = str(summary.get("next_24h_level", selected_row.get("peak", "N/A")))
+    next_24h_score = safe_float(summary.get("next_24h_score", selected_row.get("peak_score", 0.0)))
+    next_7d_peak_level = str(summary.get("next_7d_peak_level", selected_row.get("peak", "N/A")))
+    next_7d_peak_score = safe_float(summary.get("next_7d_peak_score", selected_row.get("peak_score", 0.0)))
+    next_7d_peak_date = summary.get("next_7d_peak_date", selected_row.get("peak_date"))
+
+    payload = {
+        # Core context
+        "city": city,
+        "date": first_date,
+        "readiness": str(summary.get("readiness_status", selected_row.get("readiness", "N/A"))),
+        "readiness_status": str(summary.get("readiness_status", selected_row.get("readiness", "N/A"))),
+        "alert_severity": str(selected_row.get("alert_severity", "Monitoring Notice")),
+        "alert_issued": str(selected_row.get("alert_issued", "No")),
+        "alert_issued_bool": str(selected_row.get("alert_issued", "No")).strip().lower() == "yes",
+        "target_audience": target_audience_raw,
+        "target_audience_list": target_audience_list,
+        "operator_summary": str(selected_row.get("operator_summary", "")),
+
+        # Next 24h aliases
+        "next_24h_level": next_24h_level,
+        "next_24h_risk": next_24h_level,
+        "next_24h_score": next_24h_score,
+
+        # Peak aliases
+        "peak": next_7d_peak_level,
+        "peak_level": next_7d_peak_level,
+        "peak_score": next_7d_peak_score,
+        "peak_date": format_date(next_7d_peak_date),
+        "next_7d_peak_level": next_7d_peak_level,
+        "next_7d_peak_score": next_7d_peak_score,
+        "next_7d_peak_date": next_7d_peak_date,
+        "high_risk_days": int(summary.get("high_risk_days", selected_row.get("high_risk_days", 0))),
+
+        # Escalation
+        "escalation_probability_72h": safe_float(selected_row.get("escalation_probability_72h")),
+        "escalation_label_72h": str(selected_row.get("escalation_label_72h", "Stable")),
+    }
+
+    return payload
+
+
 @st.cache_data(ttl=1800)
-def load_city_snapshot(city: str, temperature_delta: float, humidity_delta: float, wind_delta: float):
+def load_city_snapshot(
+    city: str,
+    temperature_delta: float,
+    humidity_delta: float,
+    wind_delta: float,
+):
     forecast_df = make_ml_forecast(
         city,
         temperature_delta=temperature_delta,
@@ -759,26 +835,42 @@ with tabs[3]:
         st.info("Nema alert podataka za generiranje komunikacijskih poruka.")
     else:
         selected_alert_row = snapshot_df[snapshot_df["city"] == selected_city].iloc[0]
-        comm_package = build_alert_communication_package(selected_alert_row.to_dict())
+        selected_forecast_df, selected_summary = load_city_snapshot(
+            selected_city,
+            temperature_delta,
+            humidity_delta,
+            wind_delta,
+        )
+
+        communication_payload = build_communication_payload(
+            city=selected_city,
+            summary=selected_summary,
+            selected_row=selected_alert_row,
+            forecast_df=selected_forecast_df,
+        )
+
+        comm_package = build_alert_communication_package(communication_payload)
 
         c1, c2, c3 = st.columns(3)
         with c1:
             metric_card("Alert severity", selected_alert_row["alert_severity"], "Public communication level")
         with c2:
-            metric_card("Readiness", selected_alert_row["readiness"], "Operational posture")
+            metric_card("Readiness", communication_payload["readiness"], "Operational posture")
         with c3:
             metric_card(
                 "72h escalation",
-                selected_alert_row["escalation_label_72h"],
-                f"{safe_float(selected_alert_row['escalation_probability_72h']):.2f}",
+                communication_payload["escalation_label_72h"],
+                f"{safe_float(communication_payload['escalation_probability_72h']):.2f}",
             )
 
         st.markdown(
-            """
+            f"""
             <div class="note-box">
                 <b>Communication framing:</b> Ovdje HeatSafe HR prevodi alert signal u poruke za javnost,
-                turiste, medije i operatere. Time alert ostaje konzistentan između internog decision-support
-                sloja i vanjske komunikacije.
+                turiste, medije i operatere. Ovaj komunikacijski paket je sada sinkroniziran s aktivnim
+                snapshotom za grad <b>{selected_city}</b>: readiness <b>{communication_payload["readiness"]}</b>,
+                next 24h risk <b>{communication_payload["next_24h_level"]}</b> i next 7d peak
+                <b>{communication_payload["next_7d_peak_level"]}</b> ({communication_payload["next_7d_peak_score"]:.1f}).
             </div>
             """,
             unsafe_allow_html=True,
@@ -827,7 +919,7 @@ with tabs[3]:
             )
 
         with d3:
-            package_text = (
+            full_comm_package_text = (
                 "HEATSAFE HR — COMMUNICATION PACKAGE\n\n"
                 f"{comm_package['public_advisory_hr']}\n\n"
                 f"{comm_package['tourist_advisory_en']}\n\n"
@@ -839,7 +931,7 @@ with tabs[3]:
 
             st.download_button(
                 "⬇ Download full communication package (.txt)",
-                data=package_text.encode("utf-8"),
+                data=full_comm_package_text.encode("utf-8"),
                 file_name=f"heatsafe_hr_communication_package_{selected_city}.txt",
                 mime="text/plain",
                 use_container_width=True,

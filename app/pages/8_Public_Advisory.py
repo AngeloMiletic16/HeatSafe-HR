@@ -17,9 +17,10 @@ from src.sidebar import render_app_sidebar
 
 
 st.set_page_config(
-    page_title="Public Advisory",
+    page_title="Public Advisory | HeatSafe HR",
     page_icon="📣",
     layout="wide",
+    initial_sidebar_state="expanded",
 )
 
 st.markdown(
@@ -550,15 +551,6 @@ st.markdown(
         border: 1px solid rgba(255,255,255,0.12);
     }
 
-    .control-card {
-        background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
-        border: 1px solid rgba(15,23,42,0.08);
-        border-radius: 18px;
-        padding: 1rem 1rem 0.9rem 1rem;
-        box-shadow: 0 8px 24px rgba(15,23,42,0.06);
-        margin-bottom: 1rem;
-    }
-
     .metric-card {
         background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
         border: 1px solid rgba(15,23,42,0.08);
@@ -626,6 +618,12 @@ st.markdown(
         margin-bottom: 0.7rem;
     }
 
+    .panel-text {
+        color: #334155;
+        line-height: 1.72;
+        font-size: 0.95rem;
+    }
+
     .soft-list {
         margin: 0;
         padding-left: 1.1rem;
@@ -662,6 +660,21 @@ st.markdown(
         box-shadow: 0 8px 24px rgba(15,23,42,0.06);
         color: #334155;
         line-height: 1.72;
+        height: 100%;
+    }
+
+    .summary-title {
+        font-size: 1rem;
+        font-weight: 800;
+        color: #0f172a;
+        margin-bottom: 0.65rem;
+    }
+
+    .summary-lead {
+        font-size: 1.02rem;
+        color: #0f172a;
+        font-weight: 700;
+        margin-bottom: 0.55rem;
     }
 
     .report-box {
@@ -671,6 +684,15 @@ st.markdown(
         padding: 1rem;
         box-shadow: 0 8px 24px rgba(15,23,42,0.06);
         margin-top: 0.8rem;
+    }
+
+    .preview-box {
+        background: #f8fafc;
+        border: 1px solid rgba(15,23,42,0.08);
+        border-radius: 14px;
+        padding: 0.9rem 1rem;
+        color: #334155;
+        line-height: 1.65;
     }
 
     div.stDownloadButton > button {
@@ -692,7 +714,7 @@ st.markdown(
         color: white;
     }
 
-    .stCodeBlock, .stDataFrame {
+    .stDataFrame {
         border-radius: 14px;
     }
     </style>
@@ -743,6 +765,10 @@ def level_color(level: str) -> str:
         "Visok": "#E67E22",
         "Vrlo visok": "#C0392B",
     }.get(level, "#64748b")
+
+
+def limited_items(items: list[str], n: int = 4) -> list[str]:
+    return items[:n]
 
 
 def build_public_brief(
@@ -823,27 +849,26 @@ default_index = cities.index(default_city) if default_city in cities else 0
 
 st.markdown('<div class="section-title">Public advisory control panel</div>', unsafe_allow_html=True)
 
-with st.container():
-    ctl1, ctl2, ctl3 = st.columns([1, 1.2, 1])
+ctl1, ctl2, ctl3 = st.columns([1, 1.2, 1])
 
-    with ctl1:
-        st.radio(
-            "Language / Jezik",
-            options=["hr", "en"],
-            format_func=lambda x: "Hrvatski" if x == "hr" else "English",
-            horizontal=True,
-            key="public_advisory_lang_code",
-        )
+with ctl1:
+    st.radio(
+        "Language / Jezik",
+        options=["hr", "en"],
+        format_func=lambda x: "Hrvatski" if x == "hr" else "English",
+        horizontal=True,
+        key="public_advisory_lang_code",
+    )
 
-    lang = st.session_state.public_advisory_lang_code
-    ui = LANG_UI[lang]
+lang = st.session_state.public_advisory_lang_code
+ui = LANG_UI[lang]
 
-    with ctl2:
-        selected_city = st.selectbox(ui["city"], cities, index=default_index)
-        st.session_state.selected_city = selected_city
+with ctl2:
+    selected_city = st.selectbox(ui["city"], cities, index=default_index)
+    st.session_state.selected_city = selected_city
 
-    with ctl3:
-        scenario_enabled = st.toggle(ui["scenario"], value=True)
+with ctl3:
+    scenario_enabled = st.toggle(ui["scenario"], value=True)
 
 if scenario_enabled:
     st.markdown(
@@ -907,21 +932,42 @@ with k3:
 with k4:
     metric_card(ui["high_days"], str(summary["high_risk_days"]), ui["advisory_level"])
 
-st.markdown(
-    f"""
-    <div class="summary-card">
-        <b>{ui['notice_title']}:</b><br><br>
-        {ui["today_message"].format(city=selected_city, level=summary["next_24h_level"])}
-        <br><br>
-        {ui["peak_message"].format(
-            date=pd.to_datetime(summary['next_7d_peak_date']).strftime('%d.%m.%Y.'),
-            level=summary['next_7d_peak_level'],
-            score=f"{summary['next_7d_peak_score']:.1f}",
-        )}
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
+sum_left, sum_right = st.columns(2)
+
+with sum_left:
+    st.markdown(
+        f"""
+        <div class="summary-card">
+            <div class="summary-title">{ui['notice_title']}</div>
+            <div class="summary-lead">
+                {ui["today_message"].format(city=selected_city, level=summary["next_24h_level"])}
+            </div>
+            Trenutni javni signal služi kao <b>kratkoročna preporuka za sljedeća 24 sata</b>.
+            To je najvažniji dio za građane, posjetitelje i obitelji koje planiraju dnevne aktivnosti,
+            boravak na otvorenom i osnovne zaštitne mjere.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+with sum_right:
+    st.markdown(
+        f"""
+        <div class="summary-card">
+            <div class="summary-title">7-day outlook</div>
+            <div class="summary-lead">
+                {ui["peak_message"].format(
+                    date=pd.to_datetime(summary['next_7d_peak_date']).strftime('%d.%m.%Y.'),
+                    level=summary['next_7d_peak_level'],
+                    score=f"{summary['next_7d_peak_score']:.1f}",
+                )}
+            </div>
+            Ovaj pogled unaprijed pomaže razumjeti <b>dolazi li pogoršanje</b> i treba li
+            ranije prilagoditi aktivnosti, planove putovanja, događaje ili rad na otvorenom.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 if RISK_RANK[summary["next_7d_peak_level"]] > RISK_RANK[summary["next_24h_level"]]:
     st.markdown(
@@ -952,40 +998,54 @@ st.markdown(
 st.markdown(f'<div class="section-title">{ui["audience_title"]}</div>', unsafe_allow_html=True)
 
 audience_titles = ui["audiences"]
+level_key = summary["next_24h_level"]
 
-row1 = st.columns(3)
-with row1[0]:
-    render_list_card(
-        audience_titles["citizens"],
-        ADVISORY_DATA[lang]["citizens"][summary["next_24h_level"]],
-    )
-with row1[1]:
-    render_list_card(
-        audience_titles["elderly"],
-        ADVISORY_DATA[lang]["elderly"][summary["next_24h_level"]],
-    )
-with row1[2]:
-    render_list_card(
-        audience_titles["children"],
-        ADVISORY_DATA[lang]["children"][summary["next_24h_level"]],
-    )
+rec_tabs = st.tabs(
+    [
+        "Građani i turisti" if lang == "hr" else "Citizens & tourists",
+        "Osjetljive skupine" if lang == "hr" else "Vulnerable groups",
+        "Rad i događaji" if lang == "hr" else "Work & events",
+    ]
+)
 
-row2 = st.columns(3)
-with row2[0]:
-    render_list_card(
-        audience_titles["tourists"],
-        ADVISORY_DATA[lang]["tourists"][summary["next_24h_level"]],
-    )
-with row2[1]:
-    render_list_card(
-        audience_titles["outdoor_workers"],
-        ADVISORY_DATA[lang]["outdoor_workers"][summary["next_24h_level"]],
-    )
-with row2[2]:
-    render_list_card(
-        audience_titles["event_organizers"],
-        ADVISORY_DATA[lang]["event_organizers"][summary["next_24h_level"]],
-    )
+with rec_tabs[0]:
+    a1, a2 = st.columns(2)
+    with a1:
+        render_list_card(
+            audience_titles["citizens"],
+            limited_items(ADVISORY_DATA[lang]["citizens"][level_key], 4),
+        )
+    with a2:
+        render_list_card(
+            audience_titles["tourists"],
+            limited_items(ADVISORY_DATA[lang]["tourists"][level_key], 4),
+        )
+
+with rec_tabs[1]:
+    b1, b2 = st.columns(2)
+    with b1:
+        render_list_card(
+            audience_titles["elderly"],
+            limited_items(ADVISORY_DATA[lang]["elderly"][level_key], 4),
+        )
+    with b2:
+        render_list_card(
+            audience_titles["children"],
+            limited_items(ADVISORY_DATA[lang]["children"][level_key], 4),
+        )
+
+with rec_tabs[2]:
+    c1, c2 = st.columns(2)
+    with c1:
+        render_list_card(
+            audience_titles["outdoor_workers"],
+            limited_items(ADVISORY_DATA[lang]["outdoor_workers"][level_key], 4),
+        )
+    with c2:
+        render_list_card(
+            audience_titles["event_organizers"],
+            limited_items(ADVISORY_DATA[lang]["event_organizers"][level_key], 4),
+        )
 
 brief_text = build_public_brief(
     city=selected_city,
@@ -1000,15 +1060,42 @@ brief_text = build_public_brief(
 st.markdown('<div class="section-title">Public advisory export</div>', unsafe_allow_html=True)
 
 st.markdown('<div class="report-box">', unsafe_allow_html=True)
-st.download_button(
-    ui["download_txt"],
-    data=brief_text.encode("utf-8"),
-    file_name=f"heatsafe_hr_public_advisory_{selected_city}_{lang}.txt",
-    mime="text/plain",
-    use_container_width=True,
-    key=f"dl_public_advisory_{selected_city}_{lang}",
-)
-st.code(brief_text, language="text")
+
+e1, e2 = st.columns([1, 1])
+with e1:
+    st.download_button(
+        ui["download_txt"],
+        data=brief_text.encode("utf-8"),
+        file_name=f"heatsafe_hr_public_advisory_{selected_city}_{lang}.txt",
+        mime="text/plain",
+        use_container_width=True,
+        key=f"dl_public_advisory_{selected_city}_{lang}",
+    )
+
+with e2:
+    st.markdown(
+        f"""
+        <div class="preview-box">
+            <b>Export context:</b><br>
+            City / Grad: <b>{selected_city}</b><br>
+            Advisory level: <b>{summary["next_24h_level"]}</b><br>
+            Peak in 7d: <b>{summary["next_7d_peak_level"]}</b> ({summary["next_7d_peak_score"]:.1f})<br>
+            Scenario mode: <b>{"On" if scenario_enabled else "Off"}</b>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+with st.expander("Preview advisory text", expanded=False):
+    st.text_area(
+        "Public advisory preview",
+        value=brief_text,
+        height=420,
+        disabled=True,
+        label_visibility="collapsed",
+        key=f"public_advisory_preview_{selected_city}_{lang}",
+    )
+
 st.markdown("</div>", unsafe_allow_html=True)
 
 st.markdown(
